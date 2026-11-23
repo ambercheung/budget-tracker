@@ -966,7 +966,7 @@
           const custom = (S.settings.customColors || []).filter((x) => !COLOR_CHOICES.some((y) => y.toLowerCase() === x.toLowerCase()));
           const isCustom = ![...COLOR_CHOICES, ...(S.settings.customColors || [])].some((x) => x.toLowerCase() === c.color.toLowerCase());
           return `<div class="collapsebody">
-            <div class="swfams">${COLOR_FAMILIES.map((f) => `<div class="swatches swfam">${f.map(sw).join('')}</div>`).join('')}</div>
+            <div class="swgrid">${COLOR_FAMILIES.map((f) => f.map(sw).join('')).join('')}</div>
             <div class="swatches">${custom.map(sw).join('')}<label class="swcustom ${isCustom ? 'on' : ''}" title="Custom colour" style="--c:${c.color}"><input type="color" value="${c.color}" data-cbind="color" data-rerender="1" aria-label="Pick a custom colour"></label></div>
             <p class="muted small" style="margin:0">Tap the rainbow circle to pick any colour. Custom colours you save are added to this palette.</p>
           </div>`; })() : ''}
