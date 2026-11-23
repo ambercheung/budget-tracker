@@ -889,7 +889,10 @@
       <h2>Tile colour</h2><div class="swatches">${COLOR_CHOICES.concat((S.settings.customColors || []).filter((x) => !COLOR_CHOICES.includes(x))).map((col) => `<button style="background:${col}" class="${c.color.toLowerCase() === col.toLowerCase() ? 'on' : ''}" data-act="catColor" data-v="${col}" aria-label="Colour ${col}"></button>`).join('')}
         <label class="swcustom ${![...COLOR_CHOICES, ...(S.settings.customColors || [])].some((x) => x.toLowerCase() === c.color.toLowerCase()) ? 'on' : ''}" title="Custom colour" style="--c:${c.color}"><input type="color" value="${c.color}" data-cbind="color" data-rerender="1" aria-label="Pick a custom colour"></label></div>
       <p class="muted small" style="margin:0">Tap the rainbow circle to pick any colour. Custom colours you save are added to this palette.</p>
-      <h2>Icon</h2>${ICON_GROUPS.map(([g, list]) => `<h3 class="icongrp">${g}</h3><div class="grid4">${list.map((i) => `<button class="cattile ${c.icon === i ? 'on' : ''}" data-act="catIcon" data-v="${i}" aria-label="${i}"><span class="t" style="background:${c.color}">${svg(i, 26, '#fff')}</span></button>`).join('')}</div>`).join('')}
+      <section class="card" style="gap:8px;padding:6px 14px">
+        <button class="row catrow" style="gap:12px;min-height:52px" data-act="iconsToggle" aria-expanded="${!!scr.iconsOpen}"><span style="width:40px;height:40px;border-radius:12px;background:${c.color};display:flex;align-items:center;justify-content:center;flex:none">${svg(c.icon, 22, '#fff')}</span><b class="grow" style="font-size:16px">${scr.iconsOpen ? 'Hide icons' : 'View icons'}</b>${svg(scr.iconsOpen ? 'chevUp' : 'chevDown', 18, 'var(--muted)', 2.5)}</button>
+        ${scr.iconsOpen ? `<div style="padding-bottom:10px">${ICON_GROUPS.map(([g, list]) => `<h3 class="icongrp">${g}</h3><div class="grid4">${list.map((i) => `<button class="cattile ${c.icon === i ? 'on' : ''}" data-act="catIcon" data-v="${i}" aria-label="${i}"><span class="t" style="background:${c.color}">${svg(i, 26, '#fff')}</span></button>`).join('')}</div>`).join('')}</div>` : ''}
+      </section>
       <p class="warn" id="cwarn" style="margin:0"></p>
       <button class="btn primary" data-act="catSave">Save</button>
     </section>`;
@@ -1621,6 +1624,7 @@
       case 'catParent': { const pc = v ? cat(v) : null; top.cat.parent = pc ? pc.id : null; if (pc && !top.cat.name) { top.cat.color = pc.color; top.cat.icon = pc.icon; } render(); break; }
       case 'catColor': top.cat.color = v; render(); break;
       case 'catIcon': top.cat.icon = v; render(); break;
+      case 'iconsToggle': top.iconsOpen = !top.iconsOpen; render(); break;
       case 'catSave': {
         const c = top.cat; c.name = (c.name || '').trim();
         if (!c.name) { document.getElementById('cwarn').textContent = 'Give it a name.'; break; }
