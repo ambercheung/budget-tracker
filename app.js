@@ -153,7 +153,7 @@
   let lastScreenKey = '', lastSheetKey = '';
   // Remember where you are (tab, open screens, half-typed entry) so a pull-to-refresh lands you back in the same place.
   function saveNav() {
-    try { sessionStorage.setItem('bt-nav', JSON.stringify({ tab: ui.tab, month: ui.month, stack: ui.stack, form: ui.form, sumPeriod: ui.sumPeriod, sumWallet: ui.sumWallet, paysOpen: ui.paysOpen, futureOpen: ui.futureOpen })); } catch (e) { /* storage unavailable */ }
+    try { sessionStorage.setItem('bt-nav', JSON.stringify({ tab: ui.tab, month: ui.month, stack: ui.stack, form: ui.form, sumPeriod: ui.sumPeriod, sumWallet: ui.sumWallet, homeYear: ui.homeYear, paysOpen: ui.paysOpen, futureOpen: ui.futureOpen })); } catch (e) { /* storage unavailable */ }
   }
   function restoreNav() {
     try {
@@ -161,7 +161,7 @@
       if (!n) return false;
       if (TABS[n.tab]) ui.tab = n.tab;
       if (n.month) ui.month = clampMonth(n.month);
-      ['sumPeriod', 'sumWallet', 'paysOpen', 'futureOpen'].forEach((k) => { if (n[k] !== undefined) ui[k] = n[k]; });
+      ['sumPeriod', 'sumWallet', 'paysOpen', 'futureOpen', 'homeYear'].forEach((k) => { if (n[k] !== undefined) ui[k] = n[k]; });
       const stack = [];
       for (const sc of n.stack || []) {
         if (!sc || !SCREENS[sc.name]) break;
@@ -345,20 +345,28 @@
     // Home shows whole dollars (net worth keeps cents via signed())
     const money = (n) => '$' + Math.round(Math.abs(Number(n) || 0)).toLocaleString('en-CA');
     const H = hs(), mk = curMonthKey();
-    const yr = mk.slice(0, 4);
-    // year to date runs over this year's budget months, from the first one (or your start date) to today
-    const firstKey = [`${yr}-01`, E.monthKeyFor(S.schedule, S.settings.startDate, H)].sort().pop();
-    const ytdStart = E.budgetMonth(S.schedule, firstKey, H).start;
-    const keys = []; for (let k = firstKey; k <= mk; k = E.shiftKey(k, 1)) keys.push(k);
+    // Home covers one budget year: the January to December budget months (by pay period) of the chosen year
+    const startKey = E.monthKeyFor(S.schedule, S.settings.startDate, H);
+    // years that have data: any saved transaction or budget, by budget year; this year is always listed
+    const ys = new Set([mk.slice(0, 4)]);
+    S.transactions.forEach((t) => { if (!t.deleted && t.date) ys.add(E.monthKeyFor(S.schedule, t.date, H).slice(0, 4)); });
+    S.budgets.forEach((b) => { if (b.month && b.amount > 0) ys.add(b.month.slice(0, 4)); });
+    const years = [...ys].filter((y) => y >= startKey.slice(0, 4)).sort().reverse();
+    const yr = years.includes(ui.homeYear) ? ui.homeYear : mk.slice(0, 4);
+    const firstKey = [`${yr}-01`, startKey].sort().pop();
+    const lastKey = `${yr}-12`;
+    const ytdStart = E.budgetMonth(S.schedule, firstKey, H).start, yearEnd = E.budgetMonth(S.schedule, lastKey, H).end;
+    const until = yearEnd < TODAY ? yearEnd : TODAY;
+    const keys = []; for (let k = firstKey; k <= lastKey; k = E.shiftKey(k, 1)) keys.push(k);
     const sumBudget = (id) => keys.reduce((t, k) => t + budgetAmt(id, k), 0);
-    const real = E.transactionsInRange(S, ytdStart, TODAY);
+    const real = E.transactionsInRange(S, ytdStart, until);
     const nw = netWorth();
     // income: received this year vs this year's income budgets, per category
     const incCats = S.categories.filter((c) => c.type === 'income' && !c.parent);
     const inc = incCats.map((c) => ({ label: c.name, a: real.filter((t) => t.type === 'income' && (t.category === c.id || (cat(t.category) || {}).parent === c.id)).reduce((x, t) => x + Number(t.amount), 0), b: sumBudget(c.id) }));
     const incA = inc.reduce((t, i) => t + i.a, 0), incB = inc.reduce((t, i) => t + i.b, 0);
     // savings: today's balance vs goal balance (balance when the year started + this year's goals), per account
-    const now = E.balances(S, TODAY), start = E.balances(S, E.addDays(ytdStart, -1));
+    const now = E.balances(S, until), start = E.balances(S, E.addDays(ytdStart, -1));
     const sav = S.wallets.filter((w) => w.type === 'savings').map((w) => { return { label: w.name.replace(/^\[[^\]]+\]\s*/, ''), a: now[w.name] || 0, b: (start[w.name] || 0) + sumBudget('wallet:' + w.id) }; });
     const savA = sav.reduce((t, i) => t + i.a, 0), savB = sav.reduce((t, i) => t + i.b, 0), savAB = sav.filter((i) => i.b).reduce((t, i) => t + i.a, 0);
     const ratio = (a, b) => `${money(a)} / ${b ? money(b) : '—'}${b ? ` <span class="muted">(${pctOf(a, b)}%)</span>` : ''}`;
@@ -367,13 +375,15 @@
     // contribution room, calendar year to date
     const cy = TODAY.slice(0, 4);
     const ytd = E.transactionsInRange(S, `${cy}-01-01`, TODAY);
+    const showRoom = yr === cy;
     const room = S.wallets.filter((w) => w.type === 'savings' && Number(w.room) > 0).map((w) => {
       const used = ytd.filter((t) => t.type === 'transfer' && t.toWallet === w.name && t.wallet !== w.name).reduce((x, t) => x + Number(t.amount), 0);
       return { w, used, limit: Number(w.room) };
     });
     const line = (l, v) => `<span class="between"><span>${l}</span><span>${v}</span></span>`;
     return `<section class="screen">
-      <div><h1>Home</h1><p class="muted" style="margin:2px 0 0;font-size:14px">${yr} year to date · ${E.fmtShort(ytdStart)} – ${E.fmtShort(TODAY)}</p></div>
+      <div class="between"><h1>Home</h1><label class="yearpick"><span class="sr">Year</span><select data-homeyear="1" aria-label="Year">${years.map((y) => `<option value="${y}" ${y === yr ? 'selected' : ''}>${y}</option>`).join('')}</select>${svg('chevDown', 16, 'currentColor', 2.5)}</label></div>
+      <p class="muted" style="margin:-6px 0 0;font-size:14px">Jan–Dec budget months: ${E.fmtShort(ytdStart)} – ${E.fmtShort(yearEnd)}${until < yearEnd ? ` · to ${E.fmtShort(until)}` : ''}</p>
       <section class="card" style="gap:4px" aria-label="Net worth">
         <div class="between"><h2 style="margin:0;font-size:14px;color:var(--muted)">Net Worth</h2><button class="linkbtn" data-act="nwPick">Choose accounts</button></div>
         <p style="margin:0;font-size:34px;font-weight:800" class="${nw.total < 0 ? 'red' : 'green'}">${signed(nw.total)}</p>
@@ -391,10 +401,10 @@
         ${comboChart(sav, 'var(--pink)', 'Savings')}
         ${breakdown(sav)}
       </section>
-      <section class="card" style="gap:10px" aria-label="Contribution room">
+      ${showRoom ? `<section class="card" style="gap:10px" aria-label="Contribution room">
         <h2 class="ctitle">${cy} Contribution Room</h2>
         ${room.length ? room.map((r) => `<div style="display:flex;flex-direction:column;gap:4px"><div class="between" style="font-size:13px"><b>${esc(r.w.name)}</b><span class="muted">${money(r.used)} of ${money(r.limit)} · <b style="color:var(--text)">${pctOf(r.used, r.limit)}%</b></span></div>${bar(pctOf(r.used, r.limit), 'var(--pink)')}<span class="muted" style="font-size:12px">${r.used > r.limit ? `<span class="red">${money(r.used - r.limit)} over</span>` : `${money(r.limit - r.used)} left`}</span></div>`).join('') : `<p class="muted small" style="margin:0">Add your contribution room on a TFSA or RRSP in More → Accounts.</p>`}
-      </section>
+      </section>` : ''}
     </section>`;
   }
 
@@ -1384,6 +1394,7 @@
     if (el.dataset.sbind && top && top.sc) { const k = el.dataset.sbind; top.sc[k] = (k === 'day1' || k === 'day2') ? Number(el.value) : el.value; if (el.dataset.rerender) render(); }
   });
   document.addEventListener('change', async (e) => {
+    if (e.target.dataset.homeyear) { ui.homeYear = e.target.value; render(); return; }
     if (e.target.dataset.accent) { S.settings.theme = { ...th(), accent: 'custom', accentCustom: e.target.value }; applyTheme(); render(); await save('settings'); return; } if (e.target.dataset.rerender) render(); });
   document.addEventListener('click', async (e) => {
     const el = e.target.closest('[data-act]');
@@ -1469,6 +1480,7 @@
       case 'undo': { const fn = undoFn; undoFn = null; ui.toast = null; if (fn) await fn(); break; }
       case 'duplicate': { const t = S.transactions.find((x) => x.id === id); if (!t) break; ui.sheet = null; ui.form = newForm({ edit: t }); Object.assign(ui.form, { editId: null, ruleId: null, mode: 'default', date: TODAY }); if (top && top.name === 'add') render(); else push({ name: 'add' }); toast('Copied with today’s date'); break; }
       case 'addRecurring': ui.form = newForm({}); ui.form.mode = 'recurring'; push({ name: 'add' }); break;
+      case 'homeYear': ui.homeYear = v; render(); break;
       case 'toggleUp': ui.upOpen = !ui.upOpen; render(); break;
       case 'nwPick': ui.sheet = { name: 'nwPick' }; render(); break;
       case 'nwToggle': { const w = S.wallets.find((x) => x.id === id); w.inNetWorth = !w.inNetWorth; await save('wallets'); render(); break; }

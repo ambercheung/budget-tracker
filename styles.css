@@ -211,3 +211,6 @@ input[placeholder="—"]:placeholder-shown{text-align:center}
 .toast.withundo{display:flex;align-items:center;gap:14px;padding-right:8px}
 .toast button{border:0;background:transparent;color:var(--wine);font-weight:800;font-size:15px;min-height:40px;padding:0 10px;text-transform:uppercase;letter-spacing:.03em}
 [data-theme="light"] .toast button{color:var(--pink)}
+.yearpick{position:relative;display:inline-flex;align-items:center;background:var(--card);border-radius:12px;height:44px;color:var(--text)}
+.yearpick svg{position:absolute;right:12px;pointer-events:none}
+.yearpick select{appearance:none;-webkit-appearance:none;border:0;background:transparent;color:inherit;font:inherit;font-weight:800;font-size:17px;height:44px;padding:0 36px 0 14px;outline:none;cursor:pointer}
