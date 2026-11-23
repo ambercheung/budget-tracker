@@ -93,6 +93,20 @@
     sortIc: 'M4 7h10M4 12h7M4 17h4M17 6v12M14 15l3 3 3-3',
     grip: 'M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01',
     copy: 'M9 9h11v11H9zM5 15V4h11',
+    burger: 'M4 11a8 6 0 0 1 16 0zM3 14h18M5 17h14v1a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3z',
+    icecream: 'M7 10a5 5 0 0 1 10 0zM7 10l5 11 5-11',
+    cart: 'M3 4h2l2.5 11h10.5l2-8H6.3M7.5 19.5a1.5 1.5 0 1 0 3.0 0a1.5 1.5 0 1 0 -3.0 0M15.5 19.5a1.5 1.5 0 1 0 3.0 0a1.5 1.5 0 1 0 -3.0 0',
+    glasses: 'M3.0 14a3.5 3.5 0 1 0 7.0 0a3.5 3.5 0 1 0 -7.0 0M14.0 14a3.5 3.5 0 1 0 7.0 0a3.5 3.5 0 1 0 -7.0 0M10 14h4M3 14l2-6M21 14l-2-6',
+    headphones: 'M4 16v-4a8 8 0 0 1 16 0v4M4 15h3v6H4zM17 15h3v6h-3z',
+    hammer: 'M14 4l6 6-3 3-6-6zM12 8L3 17l3 3 9-9',
+    brush: 'M19 3l2 2-9 9-2-2zM10 12l-3 3c-2 0-3 1.5-3 3.5 0 1-.5 2-1.5 2.5 4 0 7.5-1 7.5-5l2-2',
+    bulb: 'M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c1 1 1 2 1 2.5h6c0-.5 0-1.5 1-2.5A6 6 0 0 0 12 3z',
+    mail: 'M3 6h18v12H3zM3 7l9 6 9-6',
+    trophy: 'M8 4h8v5a4 4 0 0 1-8 0zM8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M8 21h8M9 17h6',
+    plant: 'M12 21v-9M12 12c0-4 3-7 7-7 0 4-3 7-7 7zM12 15c0-3-2-5-6-5 0 3 2 5 6 5zM7 21h10',
+    coin: 'M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0M15 9c-.5-1-1.7-1.5-3-1.5-1.8 0-3 .9-3 2.2 0 3 6 1.6 6 4.6 0 1.3-1.3 2.2-3 2.2-1.4 0-2.6-.6-3-1.6M12 6v1.5M12 16.5V18',
+    gem: 'M6 3h12l4 6-10 12L2 9zM2 9h20M9 3l3 18M15 3l-3 18',
+    baguette: 'M5 19L19 5a2.5 2.5 0 0 1 0 3.5L8.5 19a2.5 2.5 0 0 1-3.5 0zM9 13l2 2M12 10l2 2M15 7l2 2',
     pencil: 'M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16zM13.5 6.5l4 4',
     plus: 'M12 5v14M5 12h14',
     trash: 'M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3',
@@ -106,19 +120,21 @@
     sync: 'M4 12a8 8 0 0 1 14-5l2 2M20 12a8 8 0 0 1-14 5l-2-2M20 4v5h-5M4 20v-5h5', download: 'M12 4v11M7 10l5 5 5-5M5 20h14', budget: 'M12 3v9h9M21 12A9 9 0 1 1 12 3'
   };
   const ICON_GROUPS = [
-    ['Food & drink', ['food', 'coffee', 'pizza', 'wine', 'beer', 'cake', 'basket']],
-    ['Home & bills', ['home', 'bills', 'phone', 'wifi', 'bolt', 'water', 'flame', 'tv', 'lamp', 'bed', 'key', 'wrench']],
+    ['Food & drink', ['food', 'coffee', 'pizza', 'wine', 'beer', 'cake', 'basket', 'burger', 'icecream', 'baguette']],
+    ['Home & bills', ['home', 'bills', 'phone', 'wifi', 'bolt', 'water', 'flame', 'tv', 'lamp', 'bed', 'key', 'wrench', 'bulb', 'hammer', 'mail']],
     ['Travel', ['car', 'gas', 'parking', 'transit', 'bus', 'train', 'bike', 'plane', 'travel', 'pin']],
-    ['Shopping', ['shopping', 'bag', 'shirt', 'tag', 'gifts', 'laptop']],
+    ['Shopping', ['shopping', 'bag', 'shirt', 'tag', 'gifts', 'laptop', 'cart', 'glasses', 'gem']],
     ['Health & beauty', ['medical', 'pill', 'heartbeat', 'tooth', 'dumbbell', 'beauty', 'scissors']],
-    ['Family & life', ['baby', 'paw', 'school', 'briefcase', 'church', 'donate']],
-    ['Money', ['income', 'bank', 'card', 'piggy', 'chart', 'shield']],
-    ['Miscellaneous', ['rec', 'film', 'music', 'game', 'ticket', 'camera', 'book', 'star', 'sun', 'cloud', 'umbrella', 'leaf']],
+    ['Family & life', ['baby', 'paw', 'school', 'briefcase', 'church', 'donate', 'plant']],
+    ['Money', ['income', 'bank', 'card', 'piggy', 'chart', 'shield', 'coin', 'wallet']],
+    ['Miscellaneous', ['rec', 'film', 'music', 'game', 'ticket', 'camera', 'book', 'star', 'sun', 'cloud', 'umbrella', 'leaf', 'headphones', 'brush', 'trophy', 'cal']],
   ];
   const ICON_CHOICES = ICON_GROUPS.flatMap((g) => g[1]);
-  const COLOR_CHOICES = ['#6B3FA0', '#46606C', '#8E3434', '#3E7A4E', '#A3423F', '#8C5A6E', '#2F5F95', '#A94B69', '#6A5A3C', '#2C3E7A', '#3C7A5C', '#2E7A72', '#6D1D3B', '#5C5960', '#B5651D', '#4B6B2E'];
+  // tile colours, grouped by colour family (4 shades each, light to dark)
+  const COLOR_FAMILIES = [['#D46A8C', '#A94B69', '#8C5A6E', '#6D1D3B'], ['#C65A4E', '#A3423F', '#8E3434', '#6E2A2A'], ['#D9823B', '#B5651D', '#9A5420', '#7A4220'], ['#A07850', '#8A6642', '#6A5A3C', '#4E3B2A'], ['#C9A227', '#B08A1E', '#957418', '#7A5F14'], ['#7E9A3A', '#64852F', '#4B6B2E', '#3A5424'], ['#4E9A62', '#3E7A4E', '#3C7A5C', '#2D5E3E'], ['#3E9A90', '#2E7A72', '#256660', '#1C504C'], ['#4F86C6', '#2F5F95', '#24497A', '#46606C'], ['#5560A8', '#2C3E7A', '#3D3A8C', '#23295A'], ['#8E62C4', '#6B3FA0', '#563383', '#3F2563'], ['#8A8590', '#5C5960', '#4A4750', '#34323A']];
+  const COLOR_CHOICES = COLOR_FAMILIES.flat();
   // per-icon viewBox so every glyph sits centred in its tile without clipping
-  const ICON_VB = {"beauty": "0.0 -2.0 24 24", "car": "0.0 1.75 24 24", "food": "-1.0 0.0 24 24", "gifts": "0.0 0.68 24 24", "rec": "0.0 1.07 24 24", "shopping": "0.0 1.0 24 24", "star": "-0.0 -0.55 24 24", "wrench": "1.0 1.0 24 24", "plane": "1.0 0.5 24 24", "pizza": "0.0 -1.0 24 24", "beer": "1.0 -0.39 24 24", "game": "0.0 1.85 24 24", "ticket": "-1.0 0.0 24 24", "school": "0.0 -1.25 24 24", "pill": "-2.0 -2.0 24 24", "flame": "0.0 -1.5 24 24", "tv": "0.0 1.5 24 24", "piggy": "-1.0 0.05 24 24", "donate": "-0.5 0.88 24 24", "check": "0.0 1.0 24 24"};
+  const ICON_VB = {"beauty": "0.0 -2.0 24 24", "car": "0.0 1.75 24 24", "food": "-1.0 0.0 24 24", "gifts": "0.0 0.68 24 24", "rec": "0.0 1.07 24 24", "shopping": "0.0 1.0 24 24", "star": "-0.0 -0.55 24 24", "wrench": "1.0 1.0 24 24", "plane": "1.0 0.5 24 24", "pizza": "0.0 -1.0 24 24", "beer": "1.0 -0.39 24 24", "game": "0.0 1.85 24 24", "ticket": "-1.0 0.0 24 24", "school": "0.0 -1.25 24 24", "pill": "-2.0 -2.0 24 24", "flame": "0.0 -1.5 24 24", "tv": "0.0 1.5 24 24", "piggy": "-1.0 0.05 24 24", "donate": "-0.5 0.88 24 24", "check": "0.0 1.0 24 24", "burger": "0.0 1.0 24 24", "icecream": "0.0 1.0 24 24", "glasses": "0.0 0.75 24 24", "plant": "0.5 1.0 24 24"};
   const svg = (name, size = 22, color = 'currentColor', sw = 2) => `<svg width="${size}" height="${size}" viewBox="${ICON_VB[name] || '0 0 24 24'}" fill="none" stroke="${color}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${ICONS[name] || ICONS.star}"></path></svg>`;
 
   // ---------- UI state ----------
@@ -886,12 +902,21 @@
       <label class="field"><span class="lbl">Name</span><input value="${esc(c.name)}" data-cbind="name" placeholder="Name"></label>
       ${scr.isNew ? `<h2>Type</h2><div class="seg" role="group" aria-label="Category type">${['expense', 'income'].map((t) => `<button class="${c.type === t ? 'on' : ''}" data-act="catType" data-v="${t}" aria-pressed="${c.type === t}" style="padding:0 16px">${t === 'expense' ? 'Expense' : 'Income'}</button>`).join('')}</div>
       <h2>Subcategory of</h2><div class="hscroll row" style="gap:8px"><button class="chip ${!c.parent ? 'on' : ''}" data-act="catParent" data-v="">None</button>${S.categories.filter((x) => x.type === c.type && !x.parent).map((x) => `<button class="chip ${c.parent === x.id ? 'on' : ''}" data-act="catParent" data-v="${x.id}">${esc(x.name)}</button>`).join('')}</div>` : ''}
-      <h2>Tile colour</h2><div class="swatches">${COLOR_CHOICES.concat((S.settings.customColors || []).filter((x) => !COLOR_CHOICES.includes(x))).map((col) => `<button style="background:${col}" class="${c.color.toLowerCase() === col.toLowerCase() ? 'on' : ''}" data-act="catColor" data-v="${col}" aria-label="Colour ${col}"></button>`).join('')}
-        <label class="swcustom ${![...COLOR_CHOICES, ...(S.settings.customColors || [])].some((x) => x.toLowerCase() === c.color.toLowerCase()) ? 'on' : ''}" title="Custom colour" style="--c:${c.color}"><input type="color" value="${c.color}" data-cbind="color" data-rerender="1" aria-label="Pick a custom colour"></label></div>
-      <p class="muted small" style="margin:0">Tap the rainbow circle to pick any colour. Custom colours you save are added to this palette.</p>
-      <section class="card" style="gap:8px;padding:6px 14px">
-        <button class="row catrow" style="gap:12px;min-height:52px" data-act="iconsToggle" aria-expanded="${!!scr.iconsOpen}"><span style="width:40px;height:40px;border-radius:12px;background:${c.color};display:flex;align-items:center;justify-content:center;flex:none">${svg(c.icon, 22, '#fff')}</span><b class="grow" style="font-size:16px">${scr.iconsOpen ? 'Hide icons' : 'View icons'}</b>${svg(scr.iconsOpen ? 'chevUp' : 'chevDown', 18, 'var(--muted)', 2.5)}</button>
-        ${scr.iconsOpen ? `<div style="padding-bottom:10px">${ICON_GROUPS.map(([g, list]) => `<h3 class="icongrp">${g}</h3><div class="grid4">${list.map((i) => `<button class="cattile ${c.icon === i ? 'on' : ''}" data-act="catIcon" data-v="${i}" aria-label="${i}"><span class="t" style="background:${c.color}">${svg(i, 26, '#fff')}</span></button>`).join('')}</div>`).join('')}</div>` : ''}
+      <section class="card collapser">
+        <button class="row catrow collapsebar" data-act="coloursToggle" aria-expanded="${!!scr.coloursOpen}"><b class="grow">${scr.coloursOpen ? 'Hide colours' : 'View colours'}</b>${svg(scr.coloursOpen ? 'chevUp' : 'chevDown', 18, 'var(--muted)', 2.5)}</button>
+        ${scr.coloursOpen ? (() => {
+          const sw = (col) => `<button style="background:${col}" class="${c.color.toLowerCase() === col.toLowerCase() ? 'on' : ''}" data-act="catColor" data-v="${col}" aria-label="Colour ${col}"></button>`;
+          const custom = (S.settings.customColors || []).filter((x) => !COLOR_CHOICES.some((y) => y.toLowerCase() === x.toLowerCase()));
+          const isCustom = ![...COLOR_CHOICES, ...(S.settings.customColors || [])].some((x) => x.toLowerCase() === c.color.toLowerCase());
+          return `<div class="collapsebody">
+            <div class="swfams">${COLOR_FAMILIES.map((f) => `<div class="swatches swfam">${f.map(sw).join('')}</div>`).join('')}</div>
+            <div class="swatches">${custom.map(sw).join('')}<label class="swcustom ${isCustom ? 'on' : ''}" title="Custom colour" style="--c:${c.color}"><input type="color" value="${c.color}" data-cbind="color" data-rerender="1" aria-label="Pick a custom colour"></label></div>
+            <p class="muted small" style="margin:0">Tap the rainbow circle to pick any colour. Custom colours you save are added to this palette.</p>
+          </div>`; })() : ''}
+      </section>
+      <section class="card collapser">
+        <button class="row catrow collapsebar" data-act="iconsToggle" aria-expanded="${!!scr.iconsOpen}"><b class="grow">${scr.iconsOpen ? 'Hide icons' : 'View icons'}</b>${svg(scr.iconsOpen ? 'chevUp' : 'chevDown', 18, 'var(--muted)', 2.5)}</button>
+        ${scr.iconsOpen ? `<div class="collapsebody">${ICON_GROUPS.map(([g, list]) => `<h3 class="icongrp">${g}</h3><div class="grid4">${list.map((i) => `<button class="cattile ${c.icon === i ? 'on' : ''}" data-act="catIcon" data-v="${i}" aria-label="${i}"><span class="t" style="background:${c.color}">${svg(i, 26, '#fff')}</span></button>`).join('')}</div>`).join('')}</div>` : ''}
       </section>
       <p class="warn" id="cwarn" style="margin:0"></p>
       <button class="btn primary" data-act="catSave">Save</button>
@@ -1628,6 +1653,7 @@
       case 'catColor': top.cat.color = v; render(); break;
       case 'catIcon': top.cat.icon = v; render(); break;
       case 'iconsToggle': top.iconsOpen = !top.iconsOpen; render(); break;
+      case 'coloursToggle': top.coloursOpen = !top.coloursOpen; render(); break;
       case 'catSave': {
         const c = top.cat; c.name = (c.name || '').trim();
         if (!c.name) { document.getElementById('cwarn').textContent = 'Give it a name.'; break; }
