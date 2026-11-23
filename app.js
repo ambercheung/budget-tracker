@@ -651,7 +651,7 @@
         const fmt = (v) => v === 0 ? `<span>$0</span>` : owed ? `<span class="${v > 0 ? 'red' : 'green'}">${v > 0 ? '▾' : '▴'}${money(v)}</span>` : `<span class="${v > 0 ? 'green' : 'red'}">${v > 0 ? '▴' : '▾'}${money(v)}</span>`;
         return `<section aria-label="${TYPE_LABEL[g.type]}" class="acctgroup" style="border-color:${TYPE_COLOR[g.type]};padding:6px 0 0">
           ${g.items.length ? g.items.map((w) => {
-            const nd = g.type === 'credit' ? E.nextDue(w, TODAY) : null; const due = nd ? E.diffDays(TODAY, nd) : null; const used = g.type === 'credit' && Number(w.limit) > 0 ? Math.round(Math.max(0, bal[w.name] || 0) / Number(w.limit) * 100) : null;
+            const nd = (g.type === 'credit' || g.type === 'loan') ? E.nextDue(w, TODAY) : null; const due = nd ? E.diffDays(TODAY, nd) : null; const used = (g.type === 'credit' || g.type === 'loan') && Number(w.limit) > 0 ? Math.round(Math.max(0, bal[w.name] || 0) / Number(w.limit) * 100) : null;
             return `<button class="acctrow" data-act="acctOpen" data-id="${w.id}"><span class="ring" style="border-color:${TYPE_COLOR[g.type]}"></span><span class="acctname"><span style="font-size:17px;font-weight:800">${esc(w.name)}</span>${due != null || used != null ? `<span class="small">${due != null ? `<span class="${due <= 3 ? 'red' : 'muted'}">Due in ${due} day${due === 1 ? '' : 's'}</span>` : ''}${due != null && used != null ? '<span class="muted"> · </span>' : ''}${used != null ? `<span class="${used >= 90 ? 'red' : 'muted'}">${used}% of limit</span>` : ''}</span>` : ''}</span><span class="leader"></span><span class="acctamt">${fmt(bal[w.name] || 0)}</span></button>`;
           }).join('') : `<div class="acctrow"><span class="ring" style="border-color:${TYPE_COLOR[g.type]}"></span><span class="muted">No ${TYPE_LABEL[g.type].toLowerCase()} yet</span></div>`}
           <div class="between" style="border-top:2px solid ${TYPE_COLOR[g.type]};padding:12px 16px 12px 50px;margin-top:6px;opacity:.95"><b style="font-size:17px">Total</b><b style="font-size:17px">${fmt(Math.round(total * 100) / 100)}</b></div>
@@ -668,11 +668,11 @@
       <div class="field"><label for="wt">Type</label><select id="wt" data-wbind="type" data-rerender="1">${['bank', 'savings', 'credit', 'loan'].map((t) => `<option value="${t}" ${w.type === t ? 'selected' : ''}>${TYPE_LABEL[t].replace(/s$/, '')}</option>`).join('')}</select></div>
       <label class="field"><span class="lbl">${w.type === 'credit' || w.type === 'loan' ? 'Amount owed' : 'Opening balance'}</span><input inputmode="decimal" value="${esc(w.opening)}" data-wbind="opening"></label>
       <label class="field"><span class="lbl">As of</span><input type="date" value="${esc(w.openingDate)}" data-wbind="openingDate"></label>
-      ${w.type === 'credit' ? (() => {
+      ${(w.type === 'credit' || w.type === 'loan') ? (() => {
         if (!w.due) w.due = { start: w.dueDay ? E.nextDue(w, TODAY) : '', every: 1, unit: 'month' };
         const units = [['day', 'day(s)'], ['week', 'week(s)'], ['month', 'month(s)'], ['monthStart', 'month(s) · 1st'], ['monthEnd', 'month(s) · last day'], ['year', 'year(s)']];
         const nd = w.due.start ? E.nextDue({ due: { ...w.due, every: Number(w.due.every) || 1 } }, TODAY) : null;
-        return `<label class="field"><span class="lbl">Credit limit</span><span class="muted">$</span><input inputmode="decimal" placeholder="e.g. 5000" value="${esc(w.limit || '')}" data-wbind="limit"></label>
+        return `<label class="field"><span class="lbl">${w.type === 'loan' ? 'Limit (optional)' : 'Credit limit'}</span><span class="muted">$</span><input inputmode="decimal" placeholder="${w.type === 'loan' ? 'For a line of credit' : 'e.g. 5000'}" value="${esc(w.limit || '')}" data-wbind="limit"></label>
       <div class="card" style="gap:10px"><span style="font-weight:800">Payment due</span>
         <div class="row"><div class="field" style="background:var(--card2);flex:0 0 118px;min-width:0"><label for="dev" style="min-width:0">Every</label><input id="dev" type="number" min="1" inputmode="numeric" value="${esc(w.due.every)}" data-wbind="due.every" data-rerender="1" style="width:100%;min-width:0"></div><div class="field grow" style="background:var(--card2);min-width:0"><select style="width:100%;min-width:0" aria-label="Repeat unit" data-wbind="due.unit" data-rerender="1">${units.map(([v, l]) => `<option value="${v}" ${w.due.unit === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div>
         <label class="field" style="background:var(--card2)"><span class="lbl">Next due date</span><input type="date" value="${esc(w.due.start || '')}" data-wbind="due.start" data-rerender="1"></label>
@@ -951,14 +951,14 @@
     const H = hs(), curK = E.monthKeyFor(S.schedule, TODAY, H), bm = E.budgetMonth(S.schedule, curK, H);
     const pay = bm.pays.find((p) => TODAY >= p.start && TODAY <= p.end) || bm.pays[0];
     const charged = pay ? list.filter((t) => t.type === 'expense' && t.wallet === w.name && t.date >= pay.start && t.date <= pay.end).reduce((x, t) => x + Number(t.amount), 0) : 0;
-    const nd = w.type === 'credit' ? E.nextDue(w, TODAY) : null; const due = nd ? E.diffDays(TODAY, nd) : null;
+    const nd = (w.type === 'credit' || w.type === 'loan') ? E.nextDue(w, TODAY) : null; const due = nd ? E.diffDays(TODAY, nd) : null;
     const color = TYPE_COLOR[w.type];
     return `<section class="screen sub">${header(shortName(w.name) || w.name, { right: `<button class="iconbtn" data-act="walletEdit" data-id="${w.id}" aria-label="Edit account">${svg('pencil', 20)}</button>` })}
       <div class="card" style="gap:6px;border-left:4px solid ${color}">
         <span class="muted small">${esc(w.name)} · ${TYPE_LABEL[w.type].replace(/s$/, '')}</span>
         <span style="font-size:32px;font-weight:800" class="${bal === 0 ? '' : owed ? (bal > 0 ? 'red' : 'green') : (bal > 0 ? 'green' : 'red')}">${owed && bal > 0 ? 'Owing ' : ''}${signed(owed ? Math.abs(bal) : bal)}</span>
         ${due != null ? `<span class="small ${due <= 3 ? 'red' : 'muted'}">Payment due ${E.fmtDay(nd)} · in ${due} day${due === 1 ? '' : 's'}</span>` : ''}
-        ${w.type === 'credit' && Number(w.limit) > 0 ? (() => { const lim = Number(w.limit), owe = Math.max(0, bal), pc = Math.round(owe / lim * 100); return `<div style="display:flex;flex-direction:column;gap:4px;margin-top:4px">${bar(pc, pc >= 90 ? 'var(--red)' : 'var(--credit)', 8)}<div class="between muted" style="font-size:12px"><span>${pc}% of ${money(lim)} limit</span><span>${money(Math.max(0, lim - owe))} available</span></div></div>`; })() : ''}
+        ${(w.type === 'credit' || w.type === 'loan') && Number(w.limit) > 0 ? (() => { const lim = Number(w.limit), owe = Math.max(0, bal), pc = Math.round(owe / lim * 100); return `<div style="display:flex;flex-direction:column;gap:4px;margin-top:4px">${bar(pc, pc >= 90 ? 'var(--red)' : w.type === 'loan' ? 'var(--loan)' : 'var(--credit)', 8)}<div class="between muted" style="font-size:12px"><span>${pc}% of ${money(lim)} limit</span><span>${money(Math.max(0, lim - owe))} available</span></div></div>`; })() : ''}
         ${w.type === 'credit' && pay ? `<span class="muted small">To be paid · ${pay.label} (${E.fmtShort(pay.start)} – ${E.fmtShort(pay.end)}): <b style="color:var(--text)">${money(charged)}</b></span>` : ''}
       </div>
       <div class="grid2">
@@ -1521,8 +1521,8 @@
         const w = top.wallet; w.name = (w.name || '').trim();
         if (!w.name) { document.getElementById('wwarn').textContent = 'Give the account a name.'; break; }
         if (S.wallets.some((x) => x.name === w.name && x.id !== w.id)) { document.getElementById('wwarn').textContent = 'You already have an account with that name.'; break; }
-        w.opening = Number(String(w.opening).replace(/[$,\s]/g, '')) || 0; w.room = w.room ? Number(w.room) : null; w.limit = w.type === 'credit' && Number(String(w.limit || '').replace(/[$,\s]/g, '')) > 0 ? Number(String(w.limit).replace(/[$,\s]/g, '')) : null;
-        if (w.type === 'credit' && w.due && w.due.start) { w.due = { start: w.due.start, every: Math.max(1, Number(w.due.every) || 1), unit: w.due.unit || 'month' }; w.dueDay = null; } else if (w.type !== 'credit') { w.due = null; w.dueDay = null; } else if (w.due && !w.due.start) w.due = null;
+        w.opening = Number(String(w.opening).replace(/[$,\s]/g, '')) || 0; w.room = w.room ? Number(w.room) : null; w.limit = (w.type === 'credit' || w.type === 'loan') && Number(String(w.limit || '').replace(/[$,\s]/g, '')) > 0 ? Number(String(w.limit).replace(/[$,\s]/g, '')) : null;
+        if ((w.type === 'credit' || w.type === 'loan') && w.due && w.due.start) { w.due = { start: w.due.start, every: Math.max(1, Number(w.due.every) || 1), unit: w.due.unit || 'month' }; w.dueDay = null; } else if (w.type !== 'credit' && w.type !== 'loan') { w.due = null; w.dueDay = null; } else if (w.due && !w.due.start) w.due = null;
         const i = S.wallets.findIndex((x) => x.id === w.id);
         if (i >= 0) {
           if (top.oldName && top.oldName !== w.name) {
