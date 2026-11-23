@@ -1020,14 +1020,17 @@
       </section>
       <section class="card" style="gap:10px">
         <h2 class="ctitle">2 · Cards &amp; loans</h2>
-        ${cards.map((c) => `<div style="display:flex;flex-direction:column;gap:4px">
-          <div class="between"><b>${esc(c.w.name)}</b>${!closed && c.end > 0.004 ? `<button class="chip" style="height:36px" data-act="payOpen" data-id="${c.w.id}">Pay</button>` : ''}</div>
+        ${(() => { const owed = cards.reduce((x, c) => x + Math.max(0, c.carry + c.charges), 0), paid = cards.reduce((x, c) => x + Math.min(c.pays, Math.max(0, c.carry + c.charges)), 0); const pc = owed > 0 ? Math.round(paid / owed * 100) : 100;
+          return owed > 0.004 ? `<div style="display:flex;flex-direction:column;gap:6px;padding-bottom:8px;border-bottom:1px solid var(--line)"><div class="between" style="align-items:baseline"><span class="muted small">Paid this month</span><span><b class="${pc >= 100 ? 'green' : ''}" style="font-size:20px">${money(paid)}</b><span class="muted"> of ${money(owed)} · ${pc}%</span></span></div>${bar(pc, 'var(--green)', 10)}<span class="muted" style="font-size:12px">${pc >= 100 ? 'Every card and loan is paid off for the month.' : `${money(owed - paid)} still owing across your cards and loans.`}</span></div>` : ''; })()}
+        ${cards.map((c) => { const due = Math.max(0, c.carry + c.charges), pc = due > 0 ? Math.min(100, Math.round(c.pays / due * 100)) : 100; return `<div style="display:flex;flex-direction:column;gap:4px">
+          <div class="between"><b>${esc(c.w.name)}</b>${!closed && c.end > 0.004 ? `<button class="chip" style="height:36px" data-act="payOpen" data-id="${c.w.id}">Pay</button>` : due > 0.004 ? '<span class="green small" style="font-weight:800">Paid off</span>' : ''}</div>
+          ${due > 0.004 ? `${bar(pc, 'var(--green)', 6)}<span class="muted" style="font-size:12px">${money(Math.min(c.pays, due))} of ${money(due)} paid · ${pc}%</span>` : ''}
           <div class="lines" style="font-size:13px">
             <span class="between"><span>Carryover from last month</span><span>${money(c.carry)}</span></span>
             <span class="between"><span>Charges this month</span><span class="red">+ ${money(c.charges)}</span></span>
             <span class="between"><span>Payments this month</span><span class="green">− ${money(c.pays)}</span></span>
-            <span class="between" style="color:var(--text);font-weight:800;border-top:1px solid var(--line);padding-top:4px"><span>${c.end > 0.004 ? 'Carries over' : 'Paid off'}</span><span>${money(Math.max(0, c.end))}</span></span>
-          </div></div>`).join('') || '<p class="muted small" style="margin:0">No cards or loans.</p>'}
+            <span class="between" style="color:var(--text);font-weight:800;border-top:1px solid var(--line);padding-top:4px"><span>${c.end > 0.004 ? 'Carries over' : c.carry + c.charges > 0.004 ? 'Paid off' : 'Nothing owing'}</span><span>${money(Math.max(0, c.end))}</span></span>
+          </div></div>`; }).join('') || '<p class="muted small" style="margin:0">No cards or loans.</p>'}
       </section>
       <section class="card" style="gap:8px">
         <h2 class="ctitle">3 · ${closed ? 'Closed' : 'Close'}</h2>
