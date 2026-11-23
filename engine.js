@@ -275,6 +275,16 @@
     return bal;
   }
 
+  // Next payment due date for a card: a repeat rule like recurring transactions ({ start, every, unit }),
+  // or the older single "due day of month".
+  function nextDue(w, today) {
+    if (w && w.due && w.due.start) {
+      const occ = occurrences({ id: 'due', pattern: 'interval', unit: w.due.unit || 'month', every: w.due.every || 1, start: w.due.start }, today, addDays(today, 800), { skips: new Set() });
+      return occ[0] || null;
+    }
+    if (w && w.dueDay) { const d = daysUntilDue(w.dueDay, today); return d == null ? null : addDays(today, d); }
+    return null;
+  }
   function daysUntilDue(dueDay, today) {
     if (!dueDay) return null;
     const { y, m, d } = parse(today);
@@ -304,7 +314,7 @@
   const api = {
     ymd, parse, addDays, dow, diffDays, daysInMonth, fmtShort, fmtDay, MONTHS, SHORT,
     defaultHolidays, isBusinessDay, prevBusinessDay, payDates, payPeriods, budgetMonth, monthKeyFor, shiftKey,
-    occurrences, transactionsInRange, duePostings, classify, countsNow, totals, balances, daysUntilDue, money, ctxOf, budgetFor, segments, segmentAt
+    occurrences, transactionsInRange, duePostings, classify, countsNow, totals, balances, daysUntilDue, nextDue, money, ctxOf, budgetFor, segments, segmentAt
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Engine = api;
 })(typeof window !== 'undefined' ? window : globalThis);

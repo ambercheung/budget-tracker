@@ -618,8 +618,8 @@
         const fmt = (v) => v === 0 ? `<span>$0</span>` : owed ? `<span class="${v > 0 ? 'red' : 'green'}">${v > 0 ? '▾' : '▴'}${money(v)}</span>` : `<span class="${v > 0 ? 'green' : 'red'}">${v > 0 ? '▴' : '▾'}${money(v)}</span>`;
         return `<section aria-label="${TYPE_LABEL[g.type]}" class="acctgroup" style="border-color:${TYPE_COLOR[g.type]};padding:6px 0 0">
           ${g.items.length ? g.items.map((w) => {
-            const due = g.type === 'credit' ? E.daysUntilDue(w.dueDay, TODAY) : null;
-            return `<button class="acctrow" data-act="acctOpen" data-id="${w.id}"><span class="ring" style="border-color:${TYPE_COLOR[g.type]}"></span><span style="display:flex;flex-direction:column"><span style="font-size:17px;font-weight:800;white-space:nowrap">${esc(w.name)}</span>${due != null ? `<span class="small ${due <= 3 ? 'red' : 'muted'}">Due in ${due} day${due === 1 ? '' : 's'}</span>` : ''}</span><span class="leader"></span><span style="font-size:17px;font-weight:800;white-space:nowrap">${fmt(bal[w.name] || 0)}</span></button>`;
+            const nd = g.type === 'credit' ? E.nextDue(w, TODAY) : null; const due = nd ? E.diffDays(TODAY, nd) : null; const used = g.type === 'credit' && Number(w.limit) > 0 ? Math.round(Math.max(0, bal[w.name] || 0) / Number(w.limit) * 100) : null;
+            return `<button class="acctrow" data-act="acctOpen" data-id="${w.id}"><span class="ring" style="border-color:${TYPE_COLOR[g.type]}"></span><span style="display:flex;flex-direction:column"><span style="font-size:17px;font-weight:800;white-space:nowrap">${esc(w.name)}</span>${due != null || used != null ? `<span class="small">${due != null ? `<span class="${due <= 3 ? 'red' : 'muted'}">Due in ${due} day${due === 1 ? '' : 's'}</span>` : ''}${due != null && used != null ? '<span class="muted"> · </span>' : ''}${used != null ? `<span class="${used >= 90 ? 'red' : 'muted'}">${used}% of limit</span>` : ''}</span>` : ''}</span><span class="leader"></span><span style="font-size:17px;font-weight:800;white-space:nowrap">${fmt(bal[w.name] || 0)}</span></button>`;
           }).join('') : `<div class="acctrow"><span class="ring" style="border-color:${TYPE_COLOR[g.type]}"></span><span class="muted">No ${TYPE_LABEL[g.type].toLowerCase()} yet</span></div>`}
           <div class="between" style="border-top:2px solid ${TYPE_COLOR[g.type]};padding:12px 16px 12px 50px;margin-top:6px;opacity:.95"><b style="font-size:17px">Total</b><b style="font-size:17px">${fmt(Math.round(total * 100) / 100)}</b></div>
         </section>`;
@@ -635,7 +635,16 @@
       <div class="field"><label for="wt">Type</label><select id="wt" data-wbind="type" data-rerender="1">${['bank', 'savings', 'credit', 'loan'].map((t) => `<option value="${t}" ${w.type === t ? 'selected' : ''}>${TYPE_LABEL[t].replace(/s$/, '')}</option>`).join('')}</select></div>
       <label class="field"><span class="lbl">${w.type === 'credit' || w.type === 'loan' ? 'Amount owed' : 'Opening balance'}</span><input inputmode="decimal" value="${esc(w.opening)}" data-wbind="opening"></label>
       <label class="field"><span class="lbl">As of</span><input type="date" value="${esc(w.openingDate)}" data-wbind="openingDate"></label>
-      ${w.type === 'credit' ? `<label class="field"><span class="lbl">Payment due day</span><input type="number" min="1" max="31" inputmode="numeric" placeholder="e.g. 22" value="${esc(w.dueDay || '')}" data-wbind="dueDay"></label>` : ''}
+      ${w.type === 'credit' ? (() => {
+        if (!w.due) w.due = { start: w.dueDay ? E.nextDue(w, TODAY) : '', every: 1, unit: 'month' };
+        const units = [['day', 'day(s)'], ['week', 'week(s)'], ['month', 'month(s)'], ['monthStart', 'month(s) · 1st'], ['monthEnd', 'month(s) · last day'], ['year', 'year(s)']];
+        const nd = w.due.start ? E.nextDue({ due: { ...w.due, every: Number(w.due.every) || 1 } }, TODAY) : null;
+        return `<label class="field"><span class="lbl">Credit limit</span><span class="muted">$</span><input inputmode="decimal" placeholder="e.g. 5000" value="${esc(w.limit || '')}" data-wbind="limit"></label>
+      <div class="card" style="gap:10px"><span style="font-weight:800">Payment due</span>
+        <div class="row"><div class="field" style="background:var(--card2);flex:0 0 118px;min-width:0"><label for="dev" style="min-width:0">Every</label><input id="dev" type="number" min="1" inputmode="numeric" value="${esc(w.due.every)}" data-wbind="due.every" data-rerender="1" style="width:100%;min-width:0"></div><div class="field grow" style="background:var(--card2);min-width:0"><select style="width:100%;min-width:0" aria-label="Repeat unit" data-wbind="due.unit" data-rerender="1">${units.map(([v, l]) => `<option value="${v}" ${w.due.unit === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div>
+        <label class="field" style="background:var(--card2)"><span class="lbl">Next due date</span><input type="date" value="${esc(w.due.start || '')}" data-wbind="due.start" data-rerender="1"></label>
+        <p class="muted small" style="margin:0">${nd ? `Next payment due ${E.fmtDay(nd)}, ${nd.slice(0, 4)} · in ${E.diffDays(TODAY, nd)} day${E.diffDays(TODAY, nd) === 1 ? '' : 's'}.` : 'Pick the next due date to see the countdown on Accounts.'}</p>
+      </div>`; })() : ''}
       ${w.type === 'savings' ? `<label class="field"><span class="lbl">${TODAY.slice(0, 4)} contribution room</span><input inputmode="decimal" placeholder="TFSA / RRSP only" value="${esc(w.room || '')}" data-wbind="room"></label>` : ''}
       <div class="card"><div class="between"><span style="font-weight:800">Include in net worth</span>${sw('inNetWorth')}</div></div>
       <p class="warn" id="wwarn" style="margin:0"></p>
@@ -656,14 +665,18 @@
     return `Every ${r.every} ${r.unit}${r.every > 1 ? 's' : ''}`;
   }
   let scrSubs = null;
+  const ruleName = (r) => r.template.title || (cat(r.template.sub) || cat(r.template.category) || {}).name || 'Transfer';
   function renderSubs() {
     scrSubs = ui.stack[ui.stack.length - 1]; const filt = scrSubs.filter || 'all';
-    const rows = S.rules.map((r) => ({ r, next: nextOcc(r) })).filter(({ r, next }) => filt === 'all' || (filt === 'upcoming' && r.active !== false && next && E.diffDays(TODAY, next) <= 30) || (filt === 'paused' && r.active === false)).sort((a, b) => (a.next || '9999').localeCompare(b.next || '9999'));
+    const smode = (S.settings.sort || {}).rules || 'date';
+    let rows = S.rules.map((r) => ({ r, next: nextOcc(r) })).filter(({ r, next }) => filt === 'all' || (filt === 'upcoming' && r.active !== false && next && E.diffDays(TODAY, next) <= 30) || (filt === 'paused' && r.active === false));
+    if (smode === 'date') rows.sort((a, b) => (a.next || '9999').localeCompare(b.next || '9999'));
+    else if (smode === 'az' || smode === 'za') rows.sort((a, b) => ruleName(a.r).localeCompare(ruleName(b.r), 'en', { sensitivity: 'base' }) * (smode === 'za' ? -1 : 1));
     const monthly = S.rules.filter((r) => r.active !== false && r.template.type === 'expense').reduce((s, r) => {
       const a = r.template.amount, f = r.pattern === 'payday' ? 2 / (r.every || 1) : r.pattern === 'dom' ? 1 : r.unit === 'day' ? 365 / 12 / r.every : r.unit === 'week' ? 52 / 12 / r.every : r.unit === 'year' ? 1 / 12 / r.every : 1 / r.every;
       return s + a * f;
     }, 0);
-    return `<section class="screen sub">${header('Subscriptions')}
+    return `<section class="screen sub">${header('Subscriptions', { right: `<button class="iconbtn" data-act="open" data-v="reorder" data-k="rules" aria-label="Order subscriptions">${svg('sortIc', 20)}</button><button class="iconbtn" data-act="addRecurring" aria-label="Add recurring transaction">${svg('plus', 22)}</button>` })}
       <div class="seg full" role="group" aria-label="Filter">${[['all', 'All'], ['upcoming', 'Upcoming'], ['paused', 'Paused']].map(([k, l]) => `<button class="${filt === k ? 'on' : ''}" data-act="subsFilter" data-v="${k}" aria-pressed="${filt === k}">${l}</button>`).join('')}</div>
       <div class="card" style="align-items:center"><span class="red" style="font-size:30px;font-weight:800">▾ ${money(monthly)}</span><span class="muted">Averaged monthly recurring expenses</span></div>
       ${rows.length ? rows.map(({ r, next }) => {
@@ -905,13 +918,14 @@
     const H = hs(), curK = E.monthKeyFor(S.schedule, TODAY, H), bm = E.budgetMonth(S.schedule, curK, H);
     const pay = bm.pays.find((p) => TODAY >= p.start && TODAY <= p.end) || bm.pays[0];
     const charged = pay ? list.filter((t) => t.type === 'expense' && t.wallet === w.name && t.date >= pay.start && t.date <= pay.end).reduce((x, t) => x + Number(t.amount), 0) : 0;
-    const due = w.type === 'credit' ? E.daysUntilDue(w.dueDay, TODAY) : null;
+    const nd = w.type === 'credit' ? E.nextDue(w, TODAY) : null; const due = nd ? E.diffDays(TODAY, nd) : null;
     const color = TYPE_COLOR[w.type];
     return `<section class="screen sub">${header(shortName(w.name) || w.name, { right: `<button class="iconbtn" data-act="walletEdit" data-id="${w.id}" aria-label="Edit account">${svg('adjust', 20)}</button>` })}
       <div class="card" style="gap:6px;border-left:4px solid ${color}">
         <span class="muted small">${esc(w.name)} · ${TYPE_LABEL[w.type].replace(/s$/, '')}</span>
         <span style="font-size:32px;font-weight:800" class="${bal === 0 ? '' : owed ? (bal > 0 ? 'red' : 'green') : (bal > 0 ? 'green' : 'red')}">${owed && bal > 0 ? 'Owing ' : ''}${signed(owed ? Math.abs(bal) : bal)}</span>
-        ${due != null ? `<span class="small ${due <= 3 ? 'red' : 'muted'}">Payment due in ${due} day${due === 1 ? '' : 's'}</span>` : ''}
+        ${due != null ? `<span class="small ${due <= 3 ? 'red' : 'muted'}">Payment due ${E.fmtDay(nd)} · in ${due} day${due === 1 ? '' : 's'}</span>` : ''}
+        ${w.type === 'credit' && Number(w.limit) > 0 ? (() => { const lim = Number(w.limit), owe = Math.max(0, bal), pc = Math.round(owe / lim * 100); return `<div style="display:flex;flex-direction:column;gap:4px;margin-top:4px">${bar(pc, pc >= 90 ? 'var(--red)' : 'var(--credit)', 8)}<div class="between muted" style="font-size:12px"><span>${pc}% of ${money(lim)} limit</span><span>${money(Math.max(0, lim - owe))} available</span></div></div>`; })() : ''}
         ${w.type === 'credit' && pay ? `<span class="muted small">To be paid · ${pay.label} (${E.fmtShort(pay.start)} – ${E.fmtShort(pay.end)}): <b style="color:var(--text)">${money(charged)}</b></span>` : ''}
       </div>
       <div class="grid2">
@@ -1156,15 +1170,16 @@
     }
   }
   function renderReorder(scr) {
-    const kind = scr.kind, mode = (S.settings.sort || {})[kind] || 'custom';
+    const kind = scr.kind, mode = (S.settings.sort || {})[kind] || (kind === 'rules' ? 'date' : 'custom');
     const row = (id, label, sub, color, icon) => `<div class="rrow" data-id="${id}">${icon ? `<span class="ic" style="width:32px;height:32px;border-radius:10px;background:${color};display:flex;align-items:center;justify-content:center;flex:none">${svg(icon, 16, '#fff')}</span>` : `<span class="ring" style="border-color:${color}"></span>`}<span class="grow" style="font-weight:${sub ? 600 : 800}">${esc(label)}</span>${mode === 'custom' ? `<span class="rhandle" role="button" aria-label="Drag to reorder ${esc(label)}">${svg('grip', 20, 'var(--muted)', 3.2)}</span>` : ''}</div>`;
     let lists = '';
-    if (kind === 'wallets') lists = WTYPES.map((t) => { const items = S.wallets.filter((w) => w.type === t); return items.length ? `<h2 style="margin:4px 0 0">${TYPE_LABEL[t]}</h2><div class="rlist" data-group="w:${t}">${items.map((w) => row(w.id, w.name, false, TYPE_COLOR[t])).join('')}</div>` : ''; }).join('');
+    if (kind === 'rules') lists = `<div class="rlist" data-group="r:all">${S.rules.map((r) => { const c = cat(r.template.category); return row(r.id, ruleName(r), false, c ? c.color : '#5C5960', c ? c.icon : 'transfer'); }).join('')}</div>`;
+    else if (kind === 'wallets') lists = WTYPES.map((t) => { const items = S.wallets.filter((w) => w.type === t); return items.length ? `<h2 style="margin:4px 0 0">${TYPE_LABEL[t]}</h2><div class="rlist" data-group="w:${t}">${items.map((w) => row(w.id, w.name, false, TYPE_COLOR[t])).join('')}</div>` : ''; }).join('');
     else lists = ['expense', 'income'].map((type) => `<h2 style="margin:4px 0 0">${type === 'expense' ? 'Expense' : 'Income'}</h2><div class="rlist" data-group="c:${type}">${S.categories.filter((c) => c.type === type && !c.parent).map((c) => row(c.id, c.name, false, c.color, c.icon)).join('')}</div>`).join('')
       + (mode === 'custom' ? S.categories.filter((p) => !p.parent && S.categories.some((c) => c.parent === p.id)).map((p) => `<h2 style="margin:4px 0 0">${esc(p.name)} subcategories</h2><div class="rlist" data-group="s:${p.id}">${S.categories.filter((c) => c.parent === p.id).map((c) => row(c.id, c.name, true, c.color, c.icon)).join('')}</div>`).join('') : '');
-    return `<section class="screen sub">${header(kind === 'wallets' ? 'Order accounts' : 'Order categories')}
-      <div class="seg full" role="group" aria-label="Sort">${[['az', 'A–Z'], ['za', 'Z–A'], ['custom', 'Custom']].map(([k, l]) => `<button class="${mode === k ? 'on' : ''}" data-act="sortMode" data-v="${k}" aria-pressed="${mode === k}">${l}</button>`).join('')}</div>
-      <p class="muted small" style="margin:0">${mode === 'custom' ? 'Drag the handle to move a row. The order is used everywhere in the app.' : 'Sorted alphabetically within each group. Choose Custom to drag rows into your own order.'}</p>
+    return `<section class="screen sub">${header(kind === 'wallets' ? 'Order accounts' : kind === 'rules' ? 'Order subscriptions' : 'Order categories')}
+      <div class="seg full" role="group" aria-label="Sort">${(kind === 'rules' ? [['date', 'Next date'], ['az', 'A–Z'], ['za', 'Z–A'], ['custom', 'Custom']] : [['az', 'A–Z'], ['za', 'Z–A'], ['custom', 'Custom']]).map(([k, l]) => `<button class="${mode === k ? 'on' : ''}" data-act="sortMode" data-v="${k}" aria-pressed="${mode === k}">${l}</button>`).join('')}</div>
+      <p class="muted small" style="margin:0">${mode === 'custom' ? 'Drag the handle to move a row. The order is used everywhere in the app.' : mode === 'date' ? 'Sorted by the next payment date, soonest first. Choose Custom to drag rows into your own order.' : 'Sorted alphabetically. Choose Custom to drag rows into your own order.'}</p>
       ${lists}
     </section>`;
   }
@@ -1193,7 +1208,7 @@
       rowEl.classList.remove('dragging'); rowEl.style.transform = '';
       const ids = [...list.querySelectorAll('.rrow')].map((x) => x.dataset.id);
       const [g] = list.dataset.group.split(':');
-      const arr = g === 'w' ? S.wallets : S.categories;
+      const arr = g === 'w' ? S.wallets : g === 'r' ? S.rules : S.categories;
       const pos = arr.map((x, i) => (ids.includes(x.id) ? i : -1)).filter((i) => i >= 0);
       const moved = ids.map((id) => arr.find((x) => x.id === id));
       if (g === 'c') {
@@ -1202,7 +1217,7 @@
         const others = S.categories.filter((c) => (c.parent ? (cat(c.parent) || {}).type : c.type) !== type);
         S.categories = moved.flatMap((p) => [p].concat(S.categories.filter((c) => c.parent === p.id))).concat(others);
       } else pos.forEach((p, i) => { arr[p] = moved[i]; });
-      await save(g === 'w' ? 'wallets' : 'categories');
+      await save(g === 'w' ? 'wallets' : g === 'r' ? 'rules' : 'categories');
     };
     document.addEventListener('pointerup', end); document.addEventListener('pointercancel', end);
   })();
@@ -1326,7 +1341,7 @@
     if (el.dataset.accent) { document.documentElement.style.setProperty('--pink', el.value); return; }
     if (el.dataset.bind && ui.form) { setPath(ui.form, el.dataset.bind, el.value); if (el.dataset.rerender) render(); }
     const top = ui.stack[ui.stack.length - 1];
-    if (el.dataset.wbind && top) { top.wallet[el.dataset.wbind] = el.value; if (el.dataset.rerender) render(); }
+    if (el.dataset.wbind && top) { const [a, b] = el.dataset.wbind.split('.'); if (b) { top.wallet[a] = { ...(top.wallet[a] || {}), [b]: el.value }; } else top.wallet[a] = el.value; if (el.dataset.rerender && el.tagName !== 'INPUT') render(); }
     if (el.dataset.cbind && top) top.cat[el.dataset.cbind] = el.value;
     if (el.dataset.ybind && top) top[el.dataset.ybind] = el.value;
     if (el.dataset.xbind && top) top[el.dataset.xbind] = el.value;
@@ -1393,7 +1408,7 @@
           const j = await callScript({ action: 'restore' });
           const tbl = j.tables || {};
           if (!tbl.wallets || !tbl.categories) throw new Error('The Sheet has no backup yet');
-          const NUM = ['amount', 'opening', 'room', 'dueDay', 'every', 'pct'];
+          const NUM = ['amount', 'opening', 'room', 'dueDay', 'every', 'pct', 'limit'];
           Object.keys(tbl).forEach((t) => { if (Array.isArray(tbl[t])) tbl[t].forEach((r) => NUM.forEach((k) => { if (r[k] != null && r[k] !== '') r[k] = Number(r[k]); })); });
           SYNC_TABLES.forEach((t) => { if (!tbl[t]) return; if (t === 'settings') { const { id: _x, ...st } = tbl.settings[0] || {}; S.settings = { ...st, sync: S.settings.sync }; S.schedule = S.settings.schedule; } else S[t] = tbl[t]; });
           await DBH.saveAll(); setDirty([]); toast('Restored from Sheet');
@@ -1402,7 +1417,9 @@
       case 'exportTx': exportCsv('transactions', top.from, top.to); toast('Downloading'); break;
       case 'exportTable': exportCsv(v); toast('Downloading'); break;
       case 'subsFilter': top.filter = v; render(); break;
-      case 'sortMode': { const st = { ...(S.settings.sort || {}) }; st[top.kind] = v; S.settings.sort = st; if (v !== 'custom') { applySort(top.kind, v); await save(top.kind); } await save('settings'); render(); break; }
+      case 'sortMode': { const st = { ...(S.settings.sort || {}) }; st[top.kind] = v; S.settings.sort = st; if (v !== 'custom' && top.kind !== 'rules') { applySort(top.kind, v); await save(top.kind); }
+        if (top.kind === 'rules' && v !== 'custom' && v !== 'date') { S.rules.sort((a, b) => ruleName(a).localeCompare(ruleName(b), 'en', { sensitivity: 'base' }) * (v === 'za' ? -1 : 1)); await save('rules'); }
+        if (top.kind === 'rules' && v === 'date') { S.rules.sort((a, b) => (nextOcc(a) || '9999').localeCompare(nextOcc(b) || '9999')); await save('rules'); } await save('settings'); render(); break; }
       case 'presetSave': {
         const amount = Math.round(parseFloat(String(f.amount).replace(/[$,\s]/g, '')) * 100) / 100;
         if (!(amount > 0)) { document.getElementById('formwarn').textContent = 'Enter an amount first.'; break; }
@@ -1417,6 +1434,7 @@
       case 'sumWalletSet': ui.sumWallet = v || null; ui.sheet = null; render(); break;
       case 'undo': { const fn = undoFn; undoFn = null; ui.toast = null; if (fn) await fn(); break; }
       case 'duplicate': { const t = S.transactions.find((x) => x.id === id); if (!t) break; ui.sheet = null; ui.form = newForm({ edit: t }); Object.assign(ui.form, { editId: null, ruleId: null, mode: 'default', date: TODAY }); if (top && top.name === 'add') render(); else push({ name: 'add' }); toast('Copied with today’s date'); break; }
+      case 'addRecurring': ui.form = newForm({}); ui.form.mode = 'recurring'; push({ name: 'add' }); break;
       case 'toggleUp': ui.upOpen = !ui.upOpen; render(); break;
       case 'nwPick': ui.sheet = { name: 'nwPick' }; render(); break;
       case 'nwToggle': { const w = S.wallets.find((x) => x.id === id); w.inNetWorth = !w.inNetWorth; await save('wallets'); render(); break; }
@@ -1469,7 +1487,8 @@
         const w = top.wallet; w.name = (w.name || '').trim();
         if (!w.name) { document.getElementById('wwarn').textContent = 'Give the account a name.'; break; }
         if (S.wallets.some((x) => x.name === w.name && x.id !== w.id)) { document.getElementById('wwarn').textContent = 'You already have an account with that name.'; break; }
-        w.opening = Number(String(w.opening).replace(/[$,\s]/g, '')) || 0; w.dueDay = w.dueDay ? Number(w.dueDay) : null; w.room = w.room ? Number(w.room) : null;
+        w.opening = Number(String(w.opening).replace(/[$,\s]/g, '')) || 0; w.room = w.room ? Number(w.room) : null; w.limit = w.type === 'credit' && Number(String(w.limit || '').replace(/[$,\s]/g, '')) > 0 ? Number(String(w.limit).replace(/[$,\s]/g, '')) : null;
+        if (w.type === 'credit' && w.due && w.due.start) { w.due = { start: w.due.start, every: Math.max(1, Number(w.due.every) || 1), unit: w.due.unit || 'month' }; w.dueDay = null; } else if (w.type !== 'credit') { w.due = null; w.dueDay = null; } else if (w.due && !w.due.start) w.due = null;
         const i = S.wallets.findIndex((x) => x.id === w.id);
         if (i >= 0) {
           if (top.oldName && top.oldName !== w.name) {
