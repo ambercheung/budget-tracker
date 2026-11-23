@@ -84,7 +84,9 @@ nav.tabbar button.on .pill{background:var(--wine)}
 .acctgroup{border:2px solid;border-radius:16px;padding:4px 0;display:flex;flex-direction:column}
 .acctrow{border:0;background:transparent;display:flex;align-items:center;gap:12px;padding:0 16px;min-height:50px;text-align:left;width:100%}
 .ring{width:22px;height:22px;border-radius:11px;border:2.5px solid;flex:none}
-.leader{flex:1;height:2px;background:var(--line);min-width:16px}
+.leader{flex:1 1 16px;height:2px;background:var(--line);min-width:12px}
+.acctname{display:flex;flex-direction:column;min-width:0;flex:0 1 auto;overflow-wrap:anywhere}
+.acctamt{font-size:17px;font-weight:800;white-space:nowrap;flex:none}
 .more-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .tile{border:1px solid var(--line);background:var(--card);border-radius:18px;padding:14px;display:flex;flex-direction:column;gap:10px;min-height:88px;text-align:left}
 .tile .t{font-size:16px;font-weight:800}

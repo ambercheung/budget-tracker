@@ -8,6 +8,8 @@
   // ---------- small helpers ----------
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const money = (n) => E.money(n);
+  // fallback in case an older engine.js is still cached on the phone
+  if (!E.nextDue) E.nextDue = (w, today) => { if (!w || !w.dueDay) return null; const d = E.daysUntilDue(w.dueDay, today); return d == null ? null : E.addDays(today, d); };
   const todayStr = () => {
     const q = new URLSearchParams(location.search).get('today');
     if (q && /^\d{4}-\d{2}-\d{2}$/.test(q)) return q;
@@ -151,8 +153,13 @@
   function render() {
     const top = ui.stack[ui.stack.length - 1];
     let html = '';
+    try {
     if (top) html = SCREENS[top.name](top);
     else html = TABS[ui.tab]() + navBar() + `<button class="fab" data-act="add" aria-label="Add transaction">${svg('plus', 26, 'currentColor', 2.5)}</button>`;
+    } catch (err) {
+      console.error(err);
+      html = `<section class="screen">${top ? header('Something went wrong') : '<h1>Something went wrong</h1>'}<div class="card"><p style="margin:0">This screen hit an error: <b>${esc(err && err.message)}</b></p><p class="muted small" style="margin:0">Close the app fully and reopen it. If an update just went out, refresh once so all files match. If it keeps happening, send Claude a screenshot of this.</p></div></section>` + (top ? '' : navBar());
+    }
     if (ui.sheet) html += SHEETS[ui.sheet.name](ui.sheet);
     if (th().net === 'simple') html = html.replace(/▴ ?/g, '+').replace(/▾ ?/g, '−');
     if (window.BT_DEMO) html = `<div class="demobar">Sample data · pretending today is ${E.fmtDay(TODAY)}, ${TODAY.slice(0, 4)}</div>` + html;
@@ -619,7 +626,7 @@
         return `<section aria-label="${TYPE_LABEL[g.type]}" class="acctgroup" style="border-color:${TYPE_COLOR[g.type]};padding:6px 0 0">
           ${g.items.length ? g.items.map((w) => {
             const nd = g.type === 'credit' ? E.nextDue(w, TODAY) : null; const due = nd ? E.diffDays(TODAY, nd) : null; const used = g.type === 'credit' && Number(w.limit) > 0 ? Math.round(Math.max(0, bal[w.name] || 0) / Number(w.limit) * 100) : null;
-            return `<button class="acctrow" data-act="acctOpen" data-id="${w.id}"><span class="ring" style="border-color:${TYPE_COLOR[g.type]}"></span><span style="display:flex;flex-direction:column"><span style="font-size:17px;font-weight:800;white-space:nowrap">${esc(w.name)}</span>${due != null || used != null ? `<span class="small">${due != null ? `<span class="${due <= 3 ? 'red' : 'muted'}">Due in ${due} day${due === 1 ? '' : 's'}</span>` : ''}${due != null && used != null ? '<span class="muted"> · </span>' : ''}${used != null ? `<span class="${used >= 90 ? 'red' : 'muted'}">${used}% of limit</span>` : ''}</span>` : ''}</span><span class="leader"></span><span style="font-size:17px;font-weight:800;white-space:nowrap">${fmt(bal[w.name] || 0)}</span></button>`;
+            return `<button class="acctrow" data-act="acctOpen" data-id="${w.id}"><span class="ring" style="border-color:${TYPE_COLOR[g.type]}"></span><span class="acctname"><span style="font-size:17px;font-weight:800">${esc(w.name)}</span>${due != null || used != null ? `<span class="small">${due != null ? `<span class="${due <= 3 ? 'red' : 'muted'}">Due in ${due} day${due === 1 ? '' : 's'}</span>` : ''}${due != null && used != null ? '<span class="muted"> · </span>' : ''}${used != null ? `<span class="${used >= 90 ? 'red' : 'muted'}">${used}% of limit</span>` : ''}</span>` : ''}</span><span class="leader"></span><span class="acctamt">${fmt(bal[w.name] || 0)}</span></button>`;
           }).join('') : `<div class="acctrow"><span class="ring" style="border-color:${TYPE_COLOR[g.type]}"></span><span class="muted">No ${TYPE_LABEL[g.type].toLowerCase()} yet</span></div>`}
           <div class="between" style="border-top:2px solid ${TYPE_COLOR[g.type]};padding:12px 16px 12px 50px;margin-top:6px;opacity:.95"><b style="font-size:17px">Total</b><b style="font-size:17px">${fmt(Math.round(total * 100) / 100)}</b></div>
         </section>`;
