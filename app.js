@@ -93,6 +93,7 @@
     sortIc: 'M4 7h10M4 12h7M4 17h4M17 6v12M14 15l3 3 3-3',
     grip: 'M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01',
     copy: 'M9 9h11v11H9zM5 15V4h11',
+    pencil: 'M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16zM13.5 6.5l4 4',
     plus: 'M12 5v14M5 12h14',
     trash: 'M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3',
     transfer: 'M4 8h14l-3-3M20 16H6l3 3',
@@ -150,6 +151,30 @@
 
   // ---------- rendering ----------
   let lastScreenKey = '', lastSheetKey = '';
+  // Remember where you are (tab, open screens, half-typed entry) so a pull-to-refresh lands you back in the same place.
+  function saveNav() {
+    try { sessionStorage.setItem('bt-nav', JSON.stringify({ tab: ui.tab, month: ui.month, stack: ui.stack, form: ui.form, sumPeriod: ui.sumPeriod, sumWallet: ui.sumWallet, paysOpen: ui.paysOpen, futureOpen: ui.futureOpen })); } catch (e) { /* storage unavailable */ }
+  }
+  function restoreNav() {
+    try {
+      const n = JSON.parse(sessionStorage.getItem('bt-nav') || 'null');
+      if (!n) return false;
+      if (TABS[n.tab]) ui.tab = n.tab;
+      if (n.month) ui.month = clampMonth(n.month);
+      ['sumPeriod', 'sumWallet', 'paysOpen', 'futureOpen'].forEach((k) => { if (n[k] !== undefined) ui[k] = n[k]; });
+      const stack = [];
+      for (const sc of n.stack || []) {
+        if (!sc || !SCREENS[sc.name]) break;
+        if (sc.name === 'add' && !n.form) break;
+        if ((sc.name === 'acct' || sc.name === 'wallet') && !S.wallets.some((w) => w.id === (sc.id || (sc.wallet && sc.wallet.id))) && !(sc.isNew)) break;
+        stack.push(sc);
+      }
+      ui.stack = stack;
+      if (stack.some((x) => x.name === 'add')) ui.form = n.form;
+      if (useHistory) stack.forEach((x, i) => history.pushState({ d: i + 1 }, ''));
+      return true;
+    } catch (e) { return false; }
+  }
   function render() {
     const top = ui.stack[ui.stack.length - 1];
     let html = '';
@@ -167,6 +192,7 @@
     const prev = document.querySelector('.monthscroll');
     const keepX = prev ? prev.scrollLeft : null;
     $app().innerHTML = html;
+    saveNav();
     { const key = (top ? top.name : ui.tab) + '|' + ui.stack.length, sk = ui.sheet ? ui.sheet.name : '';
       const a = $app(); a.classList.toggle('enter', key !== lastScreenKey); a.classList.toggle('sheetenter', !!sk && sk !== lastSheetKey);
       lastScreenKey = key; lastSheetKey = sk; }
@@ -538,7 +564,7 @@
       </div>` : '';
     return `<div class="add">
       <div class="top"><button class="iconbtn" style="background:transparent" data-act="back" aria-label="Back">${svg('back', 24)}</button><div class="between"><h1 style="font-size:32px">${f.editId ? 'Edit Transaction' : f.ruleId ? 'Edit Recurring' : 'Add Transaction'}</h1>${f.editId || f.ruleId ? `<span class="row" style="gap:8px">${f.editId ? `<button class="iconbtn" data-act="duplicate" data-id="${f.editId}" aria-label="Duplicate">${svg('copy', 22)}</button>` : ''}<button class="iconbtn" data-act="delete" aria-label="Delete">${svg('trash', 22, 'var(--red)')}</button></span>` : ''}</div></div>
-      ${!f.editId && !f.ruleId && (S.settings.presets || []).length ? `<div class="hscroll presets" role="group" aria-label="Presets">${S.settings.presets.map((pr) => { const pc = cat(pr.tmpl.category); return `<button class="chip" data-act="presetUse" data-id="${pr.id}"><span class="dot" style="width:10px;height:10px;background:${pc ? pc.color : 'var(--muted)'}"></span>${esc(pr.name)} · ${money(pr.tmpl.amount)}</button>`; }).join('')}<button class="chip" data-act="presetManage" aria-label="Edit presets">${svg('adjust', 16)}</button></div>` : ''}
+      ${!f.editId && !f.ruleId && (S.settings.presets || []).length ? `<div class="hscroll presets" role="group" aria-label="Presets">${S.settings.presets.map((pr) => { const pc = cat(pr.tmpl.category); return `<button class="chip" data-act="presetUse" data-id="${pr.id}"><span class="dot" style="width:10px;height:10px;background:${pc ? pc.color : 'var(--muted)'}"></span>${esc(pr.name)} · ${money(pr.tmpl.amount)}</button>`; }).join('')}<button class="chip" data-act="presetManage" aria-label="Edit presets">${svg('pencil', 16)}</button></div>` : ''}
       <section class="hero" style="background:${heroBg}">
         <div class="typebar" role="tablist" aria-label="Transaction type">${['expense', 'income', 'transfer'].map((k) => `<button role="tab" aria-selected="${f.type === k}" class="${f.type === k ? 'on' : ''}" data-act="type" data-v="${k}">${svg(TI[k][1], 16, TI[k][2], 2.6)}${TI[k][0]}</button>`).join('')}</div>
         <div class="row" style="gap:14px">
@@ -927,7 +953,7 @@
     const charged = pay ? list.filter((t) => t.type === 'expense' && t.wallet === w.name && t.date >= pay.start && t.date <= pay.end).reduce((x, t) => x + Number(t.amount), 0) : 0;
     const nd = w.type === 'credit' ? E.nextDue(w, TODAY) : null; const due = nd ? E.diffDays(TODAY, nd) : null;
     const color = TYPE_COLOR[w.type];
-    return `<section class="screen sub">${header(shortName(w.name) || w.name, { right: `<button class="iconbtn" data-act="walletEdit" data-id="${w.id}" aria-label="Edit account">${svg('adjust', 20)}</button>` })}
+    return `<section class="screen sub">${header(shortName(w.name) || w.name, { right: `<button class="iconbtn" data-act="walletEdit" data-id="${w.id}" aria-label="Edit account">${svg('pencil', 20)}</button>` })}
       <div class="card" style="gap:6px;border-left:4px solid ${color}">
         <span class="muted small">${esc(w.name)} · ${TYPE_LABEL[w.type].replace(/s$/, '')}</span>
         <span style="font-size:32px;font-weight:800" class="${bal === 0 ? '' : owed ? (bal > 0 ? 'red' : 'green') : (bal > 0 ? 'green' : 'red')}">${owed && bal > 0 ? 'Owing ' : ''}${signed(owed ? Math.abs(bal) : bal)}</span>
@@ -1345,6 +1371,7 @@
   const setPath = (obj, path, v) => { const ks = path.split('.'); let o = obj; ks.slice(0, -1).forEach((k) => { o = o[k]; }); o[ks[ks.length - 1]] = v; };
   document.addEventListener('input', (e) => {
     const el = e.target;
+    clearTimeout(saveNav.t); saveNav.t = setTimeout(saveNav, 300);
     if (el.dataset.accent) { document.documentElement.style.setProperty('--pink', el.value); return; }
     if (el.dataset.bind && ui.form) { setPath(ui.form, el.dataset.bind, el.value); if (el.dataset.rerender) render(); }
     const top = ui.stack[ui.stack.length - 1];
@@ -1684,8 +1711,10 @@
     await postDue();
     ui.month = clampMonth(E.monthKeyFor(S.schedule, TODAY, hs()));
     history.replaceState({ d: 0 }, '');
+    const addShortcut = new URLSearchParams(location.search).get('add') === '1';
+    if (!addShortcut) restoreNav();
     render();
-    if (new URLSearchParams(location.search).get('add') === '1') openForm({});
+    if (addShortcut) { history.replaceState({ d: 0 }, '', location.pathname); openForm({}); }
     window.addEventListener('online', () => scheduleSync());
     if (dirty().length) scheduleSync();
   }
