@@ -1,6 +1,6 @@
 {
   "name": "Budget Tracker",
-  "short_name": "Budget",
+  "short_name": "Spendly",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
