@@ -1272,7 +1272,7 @@
         <h2 class="ctitle">Google Sheets backup</h2>
         <p class="muted small" style="margin:0">Your data lives on this phone. Changes copy one way to your Sheet a few seconds after you make them, whenever you're online.</p>
         <label class="field" style="background:var(--card2)"><span class="lbl">Script URL</span><input value="${esc(scr.url)}" data-ybind="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"></label>
-        <label class="field" style="background:var(--card2)"><span class="lbl">Access key</span><input value="${esc(scr.key)}" data-ybind="key" placeholder="The key in your script" autocomplete="off"></label>
+        <div class="field" style="background:var(--card2)"><label for="synckey" class="lbl">Access key</label><input id="synckey" type="${scr.showKey ? 'text' : 'password'}" value="${esc(scr.key)}" data-ybind="key" placeholder="The key in your script" autocomplete="off" autocapitalize="off" spellcheck="false" style="min-width:0"><button class="linkbtn" data-act="toggleKey" aria-pressed="${!!scr.showKey}" style="flex:none">${scr.showKey ? 'Hide' : 'Show'}</button></div>
         <button class="btn outline" data-act="syncSaveCfg">Save connection</button>
         <div class="lines" style="font-size:13px">
           <span class="between"><span>Last sync</span><span>${cfg.lastSync ? new Date(cfg.lastSync).toLocaleString('en-CA', { dateStyle: 'medium', timeStyle: 'short' }) : 'Never'}</span></span>
@@ -1698,6 +1698,7 @@
       // recurring actions
       case 'unskipAsk': { const [rid, date] = id.slice(5).split('|'); ui.sheet = { name: 'unskip', ruleId: rid, date }; render(); break; }
       case 'unskipOne': { S.skips = S.skips.filter((k) => !(k.ruleId === id && k.date === v)); await save('skips'); ui.sheet = null; toast('Payment restored', async () => { S.skips.push({ ruleId: id, date: v }); await save('skips'); toast('Skipped again'); }); break; }
+      case 'toggleKey': top.showKey = !top.showKey; render(); break;
       case 'occSkip': ui.sheet = { ...ui.sheet, step: 'skip' }; render(); setTimeout(() => { const i = document.getElementById('skipCount'); if (i) i.select(); }, 30); break;
       case 'occBack': ui.sheet = { ...ui.sheet, step: null }; render(); break;
       case 'skipFrom': {
