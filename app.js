@@ -711,6 +711,38 @@
     leaveTo(depth);
     toast('Saved');
   }
+  async function delRecAction(thisOnly) {
+        const sh = ui.sheet; ui.sheet = null;
+        const r = S.rules.find((x) => x.id === sh.ruleId); if (!r) { render(); return; }
+        const now = new Date().toISOString();
+        const leaveForm = () => { if (sh.fromForm) { const depth = ui.stack.length; ui.form = null; ui.stack = []; leaveTo(depth); } };
+        if (thisOnly) {
+          if (sh.txId) {
+            const t = S.transactions.find((x) => x.id === sh.txId); t.deleted = true; t.updatedAt = now;
+            // keep the rule from posting this date again
+            if (!S.skips.some((k) => k.ruleId === r.id && k.date === sh.date)) S.skips.push({ ruleId: r.id, date: sh.date });
+            await save('transactions'); await save('skips'); leaveForm();
+            toast('Deleted', async () => { t.deleted = false; t.updatedAt = new Date().toISOString(); S.skips = S.skips.filter((k) => !(k.ruleId === r.id && k.date === sh.date)); await save('transactions'); await save('skips'); toast('Restored'); });
+          } else {
+            S.skips.push({ ruleId: r.id, date: sh.date }); await save('skips');
+            toast('Deleted', async () => { S.skips = S.skips.filter((k) => !(k.ruleId === r.id && k.date === sh.date)); await save('skips'); toast('Restored'); });
+          }
+          render(); return;
+        }
+        // this and all following: end the rule the day before, remove posted payments on or after this date
+        const prevEnd = r.end || null, idx = S.rules.indexOf(r);
+        const posted = S.transactions.filter((t) => t.ruleId === r.id && !t.deleted && t.date >= sh.date && !isLocked(t.date));
+        posted.forEach((t) => { t.deleted = true; t.updatedAt = now; });
+        const removeRule = sh.date <= r.start;
+        if (removeRule) S.rules = S.rules.filter((x) => x.id !== r.id); else r.end = E.addDays(sh.date, -1);
+        await save('rules'); if (posted.length) await save('transactions'); leaveForm();
+        toast(removeRule ? 'Recurring payment deleted' : `Ends ${E.fmtShort(E.addDays(sh.date, -1))}`, async () => {
+          if (removeRule) S.rules.splice(Math.max(0, idx), 0, r); else r.end = prevEnd;
+          posted.forEach((t) => { t.deleted = false; t.updatedAt = new Date().toISOString(); });
+          await save('rules'); await save('transactions'); toast('Restored');
+        });
+        render(); return;
+      }
   async function deleteForm() {
     const f = ui.form, now = new Date().toISOString();
     let undo = null;
@@ -1444,12 +1476,35 @@
         ${['bank', 'savings', 'credit', 'loan'].map((t) => { const items = S.wallets.filter((w) => w.type === t); return items.length ? `<div class="acctgroup" style="border-color:${TYPE_COLOR[t]}">${items.map((w) => `<button class="acctrow" data-act="walletPick" data-f="${sh.field}" data-v="${esc(w.name)}"><span class="ring" style="border-color:${TYPE_COLOR[t]};background:${f[sh.field] === w.name ? TYPE_COLOR[t] : 'transparent'}"></span><b>${esc(w.name)}</b></button>`).join('')}</div>` : ''; }).join('')}
       </div></div>`;
     },
+    delRec: (sh) => {
+      const r = S.rules.find((x) => x.id === sh.ruleId);
+      const name = r ? (r.template.title || (cat(r.template.category) || {}).name || 'Recurring') : 'Recurring';
+      return `<div class="scrim" data-act="closeSheet"><div class="sheet" role="dialog" aria-label="Delete recurring payment" data-stop="1">
+        <div class="between"><h3>Delete ${esc(name)} · ${E.fmtShort(sh.date)}?</h3><button class="iconbtn" style="background:transparent" data-act="closeSheet" aria-label="Close">${svg('close')}</button></div>
+        <p class="muted small" style="margin:0">This is a recurring payment. Earlier payments are never affected.</p>
+        <button class="btn" data-act="delThis">Delete this payment only</button>
+        <button class="btn danger" data-act="delFollowing">Delete this and all following</button>
+      </div></div>`;
+    },
     occ: (sh) => {
       const r = S.rules.find((x) => x.id === sh.ruleId);
+      const name = r.template.title || (cat(r.template.category) || {}).name || 'Recurring';
+      if (sh.step === 'skip') {
+        return `<div class="scrim" data-act="closeSheet"><div class="sheet" role="dialog" aria-label="Skip payments" data-stop="1">
+        <div class="between"><div style="display:flex;flex-direction:column;gap:2px"><h3 style="margin:0">Skip ${esc(name)}</h3><span class="muted small">Starting ${E.fmtDay(sh.date)}</span></div><button class="iconbtn" style="background:transparent" data-act="closeSheet" aria-label="Close">${svg('close')}</button></div>
+        <label class="field" style="background:var(--card2)"><span class="lbl">Skip</span><input id="skipCount" type="number" min="1" inputmode="numeric" value="1" style="width:70px"><span class="muted">payment(s)</span></label>
+        <p class="muted small" style="margin:0">Skips this payment and the next ones in a row. Undo any time from More → Subscriptions.</p>
+        <div class="row"><button class="btn grow" data-act="occBack">Back</button><button class="btn primary grow" data-act="skipFrom" data-id="${r.id}" data-v="${sh.date}">Skip</button></div>
+      </div></div>`;
+      }
       return `<div class="scrim" data-act="closeSheet"><div class="sheet" role="dialog" aria-label="Upcoming payment" data-stop="1">
-        <div class="between"><h3>${esc(r.template.title || (cat(r.template.category) || {}).name || 'Recurring')} · ${E.fmtShort(sh.date)}</h3><button class="iconbtn" style="background:transparent" data-act="closeSheet" aria-label="Close">${svg('close')}</button></div>
-        <button class="btn" data-act="skipOne" data-id="${r.id}" data-v="${sh.date}">Skip this payment</button>
-        <button class="btn" data-act="editRule" data-id="${r.id}">Edit recurring</button>
+        <div class="row" style="gap:10px;align-items:center">
+          <button class="iconbtn" data-act="editRule" data-id="${r.id}" aria-label="Edit recurring">${svg('pencil', 20)}</button>
+          <div class="grow" style="display:flex;flex-direction:column;gap:2px;min-width:0"><h3 style="margin:0">${esc(name)}</h3><span class="muted small">${E.fmtDay(sh.date)}, ${sh.date.slice(0, 4)}</span></div>
+          <button class="iconbtn" style="background:transparent" data-act="closeSheet" aria-label="Close">${svg('close')}</button>
+        </div>
+        <button class="btn" data-act="occSkip">Skip recurring payment</button>
+        <button class="btn danger" data-act="occDeleteAll" data-id="${r.id}" data-v="${sh.date}">Delete all</button>
       </div></div>`;
     },
     ruleMenu: (sh) => {
@@ -1576,6 +1631,10 @@
       case 'duplicate': { const t = S.transactions.find((x) => x.id === id); if (!t) break; ui.sheet = null; ui.form = newForm({ edit: t }); Object.assign(ui.form, { editId: null, ruleId: null, mode: 'default', date: TODAY }); if (top && top.name === 'add') render(); else push({ name: 'add' }); toast('Copied with today’s date'); break; }
       case 'addRecurring': ui.form = newForm({}); ui.form.mode = 'recurring'; push({ name: 'add' }); break;
       case 'homeYear': ui.homeYear = v; render(); break;
+      case 'delRecOpen': ui.sheet = { name: 'delRec', ruleId: id, date: v }; render(); break;
+      case 'delThis': case 'delFollowing': {
+        await delRecAction(a === 'delThis'); break;
+      }
       case 'toggleUp': ui.upOpen = !ui.upOpen; render(); break;
       case 'nwPick': ui.sheet = { name: 'nwPick' }; render(); break;
       case 'nwToggle': { const w = S.wallets.find((x) => x.id === id); w.inNetWorth = !w.inNetWorth; await save('wallets'); render(); break; }
@@ -1596,10 +1655,14 @@
       case 'walletPick': f[el.dataset.f] = v; ui.sheet = null; render(); break;
       case 'closeSheet': ui.sheet = null; render(); break;
       case 'save': await saveForm(); break;
-      case 'delete': ask(f.ruleId ? 'Delete recurring transaction? Payments already made stay.' : 'Delete transaction?', 'Yes', deleteForm); break;
+      case 'delete': {
+        if (f.editId && !f.ruleId) { const t = S.transactions.find((x) => x.id === f.editId); if (t && t.ruleId && S.rules.some((r) => r.id === t.ruleId)) { if (isLocked(t.date)) { toast(lockMsg(t.date)); break; } ui.sheet = { name: 'delRec', ruleId: t.ruleId, date: t.date, txId: t.id, fromForm: true }; render(); break; } }
+        ask(f.ruleId ? 'Delete recurring transaction? Payments already made stay.' : 'Delete transaction?', 'Yes', deleteForm); break;
+      }
       case 'txDelete': {
-        if (id.startsWith('proj:')) { const [rid, date] = id.slice(5).split('|'); ask('Delete this upcoming payment? The recurring transaction stays.', 'Yes', async () => { S.skips.push({ ruleId: rid, date }); await save('skips'); toast('Deleted', async () => { S.skips = S.skips.filter((k) => !(k.ruleId === rid && k.date === date)); await save('skips'); toast('Restored'); }); }); break; }
+        if (id.startsWith('proj:')) { const [rid, date] = id.slice(5).split('|'); if (S.rules.some((r) => r.id === rid)) { ui.sheet = { name: 'delRec', ruleId: rid, date }; render(); break; } ask('Delete this upcoming payment? The recurring transaction stays.', 'Yes', async () => { S.skips.push({ ruleId: rid, date }); await save('skips'); toast('Deleted', async () => { S.skips = S.skips.filter((k) => !(k.ruleId === rid && k.date === date)); await save('skips'); toast('Restored'); }); }); break; }
         { const lt = S.transactions.find((x) => x.id === id); if (lt && isLocked(lt.date)) { toast(lockMsg(lt.date)); break; } }
+        { const rt = S.transactions.find((x) => x.id === id); if (rt && rt.ruleId && S.rules.some((r) => r.id === rt.ruleId)) { ui.sheet = { name: 'delRec', ruleId: rt.ruleId, date: rt.date, txId: rt.id }; render(); break; } }
         ask('Delete transaction?', 'Yes', async () => { const t = S.transactions.find((x) => x.id === id); t.deleted = true; t.updatedAt = new Date().toISOString(); await save('transactions'); toast('Deleted', async () => { t.deleted = false; t.updatedAt = new Date().toISOString(); await save('transactions'); toast('Restored'); }); });
         break;
       }
@@ -1609,6 +1672,18 @@
       case 'confirmYes': { const fn = ui.sheet && ui.sheet.onYes; ui.sheet = null; if (fn) await fn(); render(); break; }
       case 'open': ui.sheet = null; push(el.dataset.k ? { name: v, kind: el.dataset.k } : { name: v }); break;
       // recurring actions
+      case 'occSkip': ui.sheet = { ...ui.sheet, step: 'skip' }; render(); setTimeout(() => { const i = document.getElementById('skipCount'); if (i) i.select(); }, 30); break;
+      case 'occBack': ui.sheet = { ...ui.sheet, step: null }; render(); break;
+      case 'skipFrom': {
+        const n = Math.max(1, Math.floor(Number(document.getElementById('skipCount').value) || 1));
+        const r = S.rules.find((x) => x.id === id);
+        const dates = E.occurrences(r, v, E.addDays(v, 4000), E.ctxOf(S)).filter((d) => d >= v).slice(0, n);
+        dates.forEach((d) => S.skips.push({ ruleId: id, date: d }));
+        await save('skips'); ui.sheet = null;
+        toast(`Skipped ${dates.length} payment${dates.length === 1 ? '' : 's'}`, async () => { S.skips = S.skips.filter((k) => !(k.ruleId === id && dates.includes(k.date))); await save('skips'); toast('Restored'); });
+        break;
+      }
+      case 'occDeleteAll': ui.sheet = { name: 'delRec', ruleId: id, date: v }; await delRecAction(false); break;
       case 'skipOne': S.skips.push({ ruleId: id, date: v }); await save('skips'); ui.sheet = null; toast('Skipped'); break;
       case 'skipN': {
         const n = Math.max(1, Number(document.getElementById('skipN').value) || 1);
