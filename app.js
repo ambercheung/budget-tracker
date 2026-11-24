@@ -1377,7 +1377,7 @@
       const owed = w.type === 'credit' || w.type === 'loan';
       return `<div class="scrim" data-act="closeSheet"><div class="sheet" role="dialog" aria-label="Correct balance" data-stop="1">
         <div class="between"><h3>Correct ${esc(shortName(w.name))}</h3><button class="iconbtn" style="background:transparent" data-act="closeSheet" aria-label="Close">${svg('close')}</button></div>
-        <p class="muted small" style="margin:0">The app has ${money(cur)}${owed ? ' owing' : ''} on ${E.fmtShort(sh.date)}. Type the real ${owed ? 'amount owing' : 'balance'}; the difference is saved as a balance correction.</p>
+        <p class="muted small" style="margin:0">${w.openingDate && sh.date <= w.openingDate ? `This account starts tracking on ${E.fmtDay(w.openingDate)}. Type its ${owed ? 'amount owing' : 'balance'} on that day and it becomes the starting balance.` : `The app has ${money(cur)}${owed ? ' owing' : ''} on ${E.fmtShort(sh.date)}. Type the real ${owed ? 'amount owing' : 'balance'}; the difference is saved as a balance correction.`}</p>
         <label class="field" style="background:var(--card2)"><span class="lbl">Real ${owed ? 'owing' : 'balance'}</span><span class="muted">$</span><input id="realbal" inputmode="decimal" placeholder="${cur.toFixed(2)}" autocomplete="off"></label>
         <p class="warn" id="cbwarn" style="margin:0"></p>
         <button class="btn primary" data-act="correctSave" data-id="${w.id}" data-v="${sh.date}">Save correction</button>
@@ -1508,6 +1508,13 @@
         const real = parseFloat(raw);
         if (raw === '' || isNaN(real)) { document.getElementById('cbwarn').textContent = 'Type the real balance.'; break; }
         if (isLocked(date)) { document.getElementById('cbwarn').textContent = lockMsg(date); break; }
+        // Before the account's start date there is nothing to correct yet: set its starting balance instead.
+        if (w.openingDate && date <= w.openingDate) {
+          const hadBefore = S.transactions.some((t) => t.type === 'adjustment' && t.wallet === w.name && t.date < w.openingDate && !t.deleted);
+          if (hadBefore) { S.transactions.forEach((t) => { if (t.type === 'adjustment' && t.wallet === w.name && t.date < w.openingDate) { t.deleted = true; t.updatedAt = new Date().toISOString(); } }); await save('transactions'); }
+          w.opening = Math.round(real * 100) / 100;
+          ui.sheet = null; await save('wallets'); toast(`Starting balance set for ${E.fmtShort(w.openingDate)}`); render(); break;
+        }
         const cur = E.balances(S, date)[w.name] || 0;
         const owed = w.type === 'credit' || w.type === 'loan';
         const delta = Math.round((owed ? cur - real : real - cur) * 100) / 100;
