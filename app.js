@@ -298,6 +298,13 @@
   function monthLabel(key) { const [y, m] = key.split('-').map(Number); return E.MONTHS[m - 1] + (y !== Number(TODAY.slice(0, 4)) ? ` ${y}` : ''); }
 
   function txView(t) {
+    if (t.skipped) {
+      const c = cat(t.category), sub = cat(t.sub);
+      return `<button class="tx skippedtx" data-act="unskipAsk" data-id="${esc(t.id)}" aria-label="Skipped payment: ${esc(t.title || (c && c.name) || 'Recurring')}. Tap to undo the skip.">
+        <span class="ic" style="background:var(--card2)">${svg((sub && sub.icon) || (c && c.icon) || 'transfer', 22, 'var(--muted)')}</span>
+        <span class="grow" style="display:flex;flex-direction:column;gap:6px;min-width:0"><span class="row" style="gap:6px"><span class="name grow" style="text-decoration:line-through;color:var(--muted)">${esc(t.title || (sub && sub.name) || (c && c.name) || 'Recurring')}</span><span class="amt" style="color:var(--muted);text-decoration:line-through">${money(t.amount)}</span></span>
+        <span class="row" style="gap:6px"><span class="ctag acct" style="background:var(--card2)">Skipped</span><span class="muted" style="font-size:13px">Tap to undo</span></span></span></button>`;
+    }
     const c = cat(t.category), sub = cat(t.sub);
     let icon = c ? (sub && sub.icon) || c.icon : 'transfer', bg = c ? c.color : '#5C5960';
     let name = t.title || (sub && sub.name) || (c && c.name) || 'Transfer';
@@ -336,7 +343,7 @@
     list.forEach((t) => { (byDay[t.date] = byDay[t.date] || []).push(t); });
     return Object.keys(byDay).sort().reverse().map((d) => {
       const rows = byDay[d];
-      const net = rows.reduce((s, t) => s + (t.type === 'income' ? +t.amount : t.type === 'expense' ? -t.amount : 0), 0);
+      const net = rows.reduce((s, t) => s + (t.skipped ? 0 : t.type === 'income' ? +t.amount : t.type === 'expense' ? -t.amount : 0), 0);
       const pay = pays.find((p) => d >= p.start && d <= p.end);
       const label = (d === TODAY ? 'Today, ' : '') + E.fmtDay(d) + (d > TODAY && pay ? ` · ${pay.label}` : '');
       return `<div style="display:flex;flex-direction:column;gap:6px"><div class="dayhead"><span>${label}</span><span>${net ? (net < 0 ? '−' : '+') + money(net) : ''}</span></div>${rows.map(txView).join('')}</div>`;
@@ -349,7 +356,9 @@
     const list = E.transactionsInRange(S, bm.start, bm.end);
     const mt = E.totals(S, bm.start, bm.end, TODAY);
     const pays = bm.pays.map((p) => ({ ...p, t: E.totals(S, p.start, p.end, TODAY) }));
-    const future = list.filter((t) => t.date > TODAY), past = list.filter((t) => t.date <= TODAY);
+    // skipped upcoming payments stay visible (faded) so they can be brought back
+    const skipped = S.skips.filter((k) => k.date > TODAY && k.date >= bm.start && k.date <= bm.end).map((k) => { const r = S.rules.find((x) => x.id === k.ruleId); return r && r.active !== false ? { ...r.template, id: `skip:${r.id}|${k.date}`, date: k.date, ruleId: r.id, skipped: true } : null; }).filter(Boolean);
+    const future = list.filter((t) => t.date > TODAY).concat(skipped), past = list.filter((t) => t.date <= TODAY);
     const first = E.monthKeyFor(S.schedule, S.settings.startDate, H);
     const keys = []; for (let k = first; k <= E.shiftKey(ui.month > first ? ui.month : first, 12); k = E.shiftKey(k, 1)) keys.push(k);
     return `<section class="screen">
@@ -1393,6 +1402,13 @@
 
   // ---------- sheets ----------
   const SHEETS = {
+    unskip: (sh) => {
+      const r = S.rules.find((x) => x.id === sh.ruleId); const name = r ? (r.template.title || (cat(r.template.category) || {}).name || 'Recurring') : 'Recurring';
+      return `<div class="scrim" data-act="closeSheet"><div class="sheet" role="dialog" aria-label="Skipped payment" data-stop="1">
+        <div class="between"><div style="display:flex;flex-direction:column;gap:2px"><h3 style="margin:0">${esc(name)}</h3><span class="muted small">Skipped · ${E.fmtDay(sh.date)}, ${sh.date.slice(0, 4)}</span></div><button class="iconbtn" style="background:transparent" data-act="closeSheet" aria-label="Close">${svg('close')}</button></div>
+        <button class="btn primary" data-act="unskipOne" data-id="${sh.ruleId}" data-v="${sh.date}">Undo skip</button>
+      </div></div>`;
+    },
     sumWallet: () => `<div class="scrim" data-act="closeSheet"><div class="sheet" role="dialog" aria-label="Filter by account" data-stop="1">
         <div class="between"><h3>Show account</h3><button class="iconbtn" style="background:transparent" data-act="closeSheet" aria-label="Close">${svg('close')}</button></div>
         <div class="acctgroup" style="border-color:var(--pink)"><button class="acctrow" data-act="sumWalletSet" data-v="" role="radio" aria-checked="${!ui.sumWallet}"><span class="ring" style="border-color:var(--pink);background:${!ui.sumWallet ? 'var(--pink)' : 'transparent'}"></span><b class="grow" style="text-align:left">All accounts</b></button></div>
@@ -1680,6 +1696,8 @@
       case 'confirmYes': { const fn = ui.sheet && ui.sheet.onYes; ui.sheet = null; if (fn) await fn(); render(); break; }
       case 'open': ui.sheet = null; push(el.dataset.k ? { name: v, kind: el.dataset.k } : { name: v }); break;
       // recurring actions
+      case 'unskipAsk': { const [rid, date] = id.slice(5).split('|'); ui.sheet = { name: 'unskip', ruleId: rid, date }; render(); break; }
+      case 'unskipOne': { S.skips = S.skips.filter((k) => !(k.ruleId === id && k.date === v)); await save('skips'); ui.sheet = null; toast('Payment restored', async () => { S.skips.push({ ruleId: id, date: v }); await save('skips'); toast('Skipped again'); }); break; }
       case 'occSkip': ui.sheet = { ...ui.sheet, step: 'skip' }; render(); setTimeout(() => { const i = document.getElementById('skipCount'); if (i) i.select(); }, 30); break;
       case 'occBack': ui.sheet = { ...ui.sheet, step: null }; render(); break;
       case 'skipFrom': {

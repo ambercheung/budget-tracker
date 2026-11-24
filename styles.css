@@ -226,3 +226,4 @@ input[placeholder="—"]:placeholder-shown{text-align:center}
 .swgrid button{width:100%;max-width:40px;aspect-ratio:1;height:auto;border-radius:50%;border:2px solid transparent;padding:0;justify-self:center}
 .swgrid button.on{border-color:#fff}
 [data-theme="light"] .swgrid button.on{border-color:#221F24}
+.tx.skippedtx{opacity:.75;background:transparent;border:1.5px dashed var(--line)}
