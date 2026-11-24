@@ -226,15 +226,57 @@
 
   // ---------- money ----------
   const walletType = (state, name) => { const w = state.wallets.find((x) => x.name === name); return w ? w.type : 'bank'; };
-  // How a transaction counts toward Income / Spend: returns { income, recurring, discretionary, savings }
+  // Card and loan balances the app has no purchases for (the starting amount owed, or a balance
+  // correction that raised it). Payments pay the oldest debt first, so a payment from a bank account
+  // counts as spend until that untracked balance is gone; payments for purchases already counted don't.
+  let debtCache = null;
+  const isDebt = (state, name) => ['credit', 'loan'].includes(walletType(state, name));
+  function debtSig(state) {
+    return state.transactions.length + '|' + state.rules.length + '|' + (state.skips || []).length + '|' +
+      state.wallets.map((w) => `${w.name}:${w.type}:${w.opening}:${w.openingDate || ''}`).join(',');
+  }
+  function buildDebt(state) {
+    const map = new Map(), left = {}, opened = {};
+    state.wallets.forEach((w) => { if (w.type === 'credit' || w.type === 'loan') { left[w.name] = Math.max(0, Number(w.opening) || 0); opened[w.name] = w.openingDate || '0000'; } });
+    if (!Object.keys(left).length) return map;
+    const real = state.transactions.filter((t) => !t.deleted);
+    const now = fromDate(new Date(Date.UTC(new Date().getFullYear(), new Date().getMonth(), new Date().getDate())));
+    let first = now, last = now;
+    real.forEach((t) => { if (t.date < first) first = t.date; if (t.date > last) last = t.date; });
+    state.rules.forEach((r) => { if (r.start && r.start < first) first = r.start; });
+    const list = transactionsInRange(state, first, addDays(last, 800)).slice().reverse(); // oldest first
+    list.forEach((t) => {
+      const a = Number(t.amount) || 0;
+      if (t.type === 'adjustment' && t.wallet in left && t.date >= opened[t.wallet]) {
+        left[t.wallet] = Math.max(0, left[t.wallet] - a); // a correction that raises the amount owed is untracked debt
+      } else if (t.type === 'transfer' && t.toWallet in left && t.date >= opened[t.toWallet]) {
+        const part = Math.min(a, left[t.toWallet]);
+        if (part <= 0) return;
+        left[t.toWallet] -= part;
+        if (t.wallet in left) left[t.wallet] += part;                 // balance transfer between cards: still owed
+        else if (walletType(state, t.wallet) === 'bank') map.set(t.id, Math.round(part * 100) / 100);
+      }
+    });
+    return map;
+  }
+  function debtPaid(state, t) {
+    const sig = debtSig(state);
+    if (!debtCache || debtCache.state !== state || debtCache.sig !== sig) debtCache = { state, sig, map: buildDebt(state) };
+    return debtCache.map.get(t.id) || 0;
+  }
+  function resetCache() { debtCache = null; }
+
+  // How a transaction counts toward Income / Spend: returns { income, recurring, discretionary, savings, debt }
   function classify(state, t) {
     const amt = Number(t.amount) || 0;
-    const z = { income: 0, recurring: 0, discretionary: 0, savings: 0 };
+    const z = { income: 0, recurring: 0, discretionary: 0, savings: 0, debt: 0 };
     if (t.type === 'income') z.income = amt;
     else if (t.type === 'expense') { if (t.ruleId) z.recurring = amt; else z.discretionary = amt; }
     else if (t.type === 'transfer') {
       const from = walletType(state, t.wallet), to = walletType(state, t.toWallet);
       if (from === 'bank' && to === 'savings') z.savings = amt;
+      else if (from === 'savings' && to === 'bank') z.savings = -amt; // withdrawal: money back to spend
+      else if (isDebt(state, t.toWallet)) z.debt = debtPaid(state, t); // paying off a balance with no purchases in the app
     }
     return z;
   }
@@ -242,13 +284,13 @@
   const countsNow = (t, today) => t.date <= today || (t.counts || 'entry') === 'entry';
 
   function totals(state, from, to, today) {
-    const sum = { income: 0, recurring: 0, discretionary: 0, savings: 0 };
+    const sum = { income: 0, recurring: 0, discretionary: 0, savings: 0, debt: 0 };
     transactionsInRange(state, from, to).forEach((t) => {
       if (!countsNow(t, today)) return;
       const c = classify(state, t);
       Object.keys(sum).forEach((k) => { sum[k] += c[k]; });
     });
-    sum.spend = sum.recurring + sum.discretionary;
+    sum.spend = sum.recurring + sum.discretionary + sum.debt;
     sum.out = sum.spend + sum.savings;
     sum.remaining = sum.income - sum.out;
     Object.keys(sum).forEach((k) => { sum[k] = Math.round(sum[k] * 100) / 100 + 0; });
@@ -314,7 +356,7 @@
   const api = {
     ymd, parse, addDays, dow, diffDays, daysInMonth, fmtShort, fmtDay, MONTHS, SHORT,
     defaultHolidays, isBusinessDay, prevBusinessDay, payDates, payPeriods, budgetMonth, monthKeyFor, shiftKey,
-    occurrences, transactionsInRange, duePostings, classify, countsNow, totals, balances, daysUntilDue, nextDue, money, ctxOf, budgetFor, segments, segmentAt
+    occurrences, transactionsInRange, duePostings, classify, countsNow, totals, resetCache, balances, daysUntilDue, nextDue, money, ctxOf, budgetFor, segments, segmentAt
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Engine = api;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -249,6 +249,7 @@
     } catch (e) { return false; }
   }
   function render() {
+    if (E.resetCache) E.resetCache();
     const top = ui.stack[ui.stack.length - 1];
     let html = '';
     try {
@@ -316,9 +317,11 @@
     else {
       icon = 'transfer'; bg = '#5C5960';
       const cls = E.classify(S, t);
-      if (cls.savings) { amt = '−' + money(a); color = 'var(--pink)'; category = 'Savings transfer'; }
-      else { amt = money(a); color = 'var(--muted)'; category = (wallet(t.toWallet) || {}).type === 'credit' ? 'Card payment' : 'Transfer'; }
-      name = t.title || (cls.savings ? 'To ' + (t.toWallet || '').replace(/^\[.*?\]\s*/, '') : 'Transfer');
+      if (cls.savings > 0) { amt = '−' + money(a); color = 'var(--pink)'; category = 'Savings transfer'; }
+      else if (cls.savings < 0) { amt = '+' + money(a); color = 'var(--green)'; category = 'Savings withdrawal'; }
+      else if (cls.debt) { const base = (wallet(t.toWallet) || {}).type === 'loan' ? 'Loan payment' : 'Card payment'; amt = '−' + money(a); color = 'var(--red)'; category = cls.debt < a - 0.004 ? `${base} · ${money(cls.debt)} old balance` : base; }
+      else { amt = money(a); color = 'var(--muted)'; const tt = (wallet(t.toWallet) || {}).type; category = tt === 'credit' ? 'Card payment' : tt === 'loan' ? 'Loan payment' : 'Transfer'; }
+      name = t.title || (cls.savings < 0 ? 'From ' + (t.wallet || '').replace(/^\[.*?\]\s*/, '')   : (cls.savings || cls.debt) ? 'To ' + (t.toWallet || '').replace(/^\[.*?\]\s*/, '') : 'Transfer');
     }
     const TYPE_HEX = { bank: '#B8B2B9', savings: '#8FD9A0', credit: '#7FB2F0', loan: '#F2A65A' };
     const acctTag = (name) => { const hex = TYPE_HEX[(wallet(name) || {}).type] || '#B8B2B9'; return `<span class="ctag acct" style="background:${hex}45">${esc(name)}</span>`; };
@@ -343,7 +346,7 @@
     list.forEach((t) => { (byDay[t.date] = byDay[t.date] || []).push(t); });
     return Object.keys(byDay).sort().reverse().map((d) => {
       const rows = byDay[d];
-      const net = rows.reduce((s, t) => s + (t.skipped ? 0 : t.type === 'income' ? +t.amount : t.type === 'expense' ? -t.amount : 0), 0);
+      const net = rows.reduce((s, t) => s + (t.skipped ? 0 : t.type === 'income' ? +t.amount : t.type === 'expense' ? -t.amount : t.type === 'transfer' ? (() => { const k = E.classify(S, t); return -k.savings - k.debt; })() : 0), 0);
       const pay = pays.find((p) => d >= p.start && d <= p.end);
       const label = (d === TODAY ? 'Today, ' : '') + E.fmtDay(d) + (d > TODAY && pay ? ` · ${pay.label}` : '');
       return `<div style="display:flex;flex-direction:column;gap:6px"><div class="dayhead"><span>${label}</span><span>${net ? (net < 0 ? '−' : '+') + money(net) : ''}</span></div>${rows.map(txView).join('')}</div>`;
@@ -394,7 +397,7 @@
   // savings moves into each savings account for a range (bank → savings, the same rule Money remaining uses)
   function savingsByWallet(list) {
     const out = {};
-    list.forEach((t) => { const c = E.classify(S, t); if (c.savings) out[t.toWallet] = (out[t.toWallet] || 0) + c.savings; });
+    list.forEach((t) => { const c = E.classify(S, t); if (c.savings) { const k = c.savings > 0 ? t.toWallet : t.wallet; out[k] = (out[k] || 0) + c.savings; } });
     return out;
   }
   function netWorth() {
@@ -491,9 +494,9 @@
   }
 
   function sumTotals(list) {
-    const z = { income: 0, recurring: 0, discretionary: 0, savings: 0 };
+    const z = { income: 0, recurring: 0, discretionary: 0, savings: 0, debt: 0 };
     list.forEach((t) => { const c = E.classify(S, t); Object.keys(z).forEach((k) => { z[k] += c[k]; }); });
-    z.spend = z.recurring + z.discretionary; z.out = z.spend + z.savings; z.remaining = z.income - z.out;
+    z.spend = z.recurring + z.discretionary + z.debt; z.out = z.spend + z.savings; z.remaining = z.income - z.out;
     Object.keys(z).forEach((k) => { z[k] = Math.round(z[k] * 100) / 100 + 0; });
     return z;
   }
@@ -574,7 +577,7 @@
     const line = (l, v) => `<span class="between"><span>${l}</span><span>${v}</span></span>`;
     const spendView = () => `      <section class="card tile2" aria-label="Total spend">
         <span class="ml2">Total Spend</span><b class="red big">▾ ${money(mt.spend)}</b>
-        <div class="lines">${line('Expenses', money(mt.recurring))}${line('Discretionary', money(mt.discretionary))}</div>
+        <div class="lines">${line('Expenses', money(mt.recurring))}${line('Discretionary', money(mt.discretionary))}${mt.debt ? line('Card &amp; loan balances', money(mt.debt)) : ''}</div>
         ${TODAY >= rg.start && TODAY <= rg.end && mt.income > 0 ? (() => { const gone = Math.round((E.diffDays(rg.start, TODAY) + 1) / (E.diffDays(rg.start, rg.end) + 1) * 100); const used = Math.round(mt.out / mt.income * 100); const ahead = used > gone + 5;
           return `<div class="pace" aria-label="Spending pace"><div class="between" style="font-size:12px"><span class="muted">Spending pace</span><b class="${ahead ? 'red' : 'green'}">${ahead ? 'Ahead of pace' : 'On track'}</b></div>
             <div class="pacerow"><span>${per === 'all' ? 'Month' : 'Pay'} gone</span>${bar(gone, 'var(--muted)', 6)}<span>${gone}%</span></div>
@@ -1095,7 +1098,7 @@
         <span style="font-size:32px;font-weight:800" class="${bal === 0 ? '' : owed ? (bal > 0 ? 'red' : 'green') : (bal > 0 ? 'green' : 'red')}">${owed && bal > 0 ? 'Owing ' : ''}${signed(owed ? Math.abs(bal) : bal)}</span>
         ${due != null ? `<span class="small ${due <= 3 ? 'red' : 'muted'}">Payment due ${E.fmtDay(nd)} · in ${due} day${due === 1 ? '' : 's'}</span>` : ''}
         ${(w.type === 'credit' || w.type === 'loan') && Number(w.limit) > 0 ? (() => { const lim = Number(w.limit), owe = Math.max(0, bal), pc = Math.round(owe / lim * 100); return `<div style="display:flex;flex-direction:column;gap:4px;margin-top:4px">${bar(pc, pc >= 90 ? 'var(--red)' : w.type === 'loan' ? 'var(--loan)' : 'var(--credit)', 8)}<div class="between muted" style="font-size:12px"><span>${pc}% of ${money(lim)} limit</span><span>${money(Math.max(0, lim - owe))} available</span></div></div>`; })() : ''}
-        ${w.type === 'credit' && pay ? `<span class="muted small">To be paid · ${pay.label} (${E.fmtShort(pay.start)} – ${E.fmtShort(pay.end)}): <b style="color:var(--text)">${money(charged)}</b></span>` : ''}
+        ${owed && pay ? `<span class="muted small">To be paid · ${pay.label} (${E.fmtShort(pay.start)} – ${E.fmtShort(pay.end)}): <b style="color:var(--text)">${money(charged)}</b></span>` : ''}
       </div>
       <div class="grid2">
         <button class="btn" data-act="correctOpen" data-id="${w.id}">Correct balance</button>
@@ -1168,11 +1171,19 @@
     scr.month = scr.month || ui.month;
     const H = hs(), mk = scr.month, bm = E.budgetMonth(S.schedule, mk, H);
     const list = E.transactionsInRange(S, bm.start, bm.end);
-    const net = {}, inc = {}, out = {};
+    const net = {}, inc = {}, out = {}, xfer = {};
     list.forEach((t) => {
-      const a = Number(t.amount) || 0;
-      if (t.type === 'income') { inc[t.date] = (inc[t.date] || 0) + a; net[t.date] = (net[t.date] || 0) + a; }
-      else if (t.type === 'expense') { out[t.date] = (out[t.date] || 0) + a; net[t.date] = (net[t.date] || 0) - a; }
+      const a = Number(t.amount) || 0, d = t.date;
+      const add = (o, v) => { o[d] = (o[d] || 0) + v; };
+      if (t.type === 'income') { add(inc, a); add(net, a); }
+      else if (t.type === 'expense') { add(out, a); add(net, -a); }
+      else if (t.type === 'transfer') {
+        const k = E.classify(S, t), sv = k.savings, ln = k.debt;
+        if (ln) { add(out, ln); add(net, -ln); if (a - ln > 0.004) add(xfer, a - ln); } // paying an old card/loan balance: money out
+        else if (sv > 0) { add(out, sv); add(net, -sv); }   // into savings: money out
+        else if (sv < 0) { add(inc, -sv); add(net, -sv); }  // out of savings: money back
+        else add(xfer, a);                                  // card/loan payment or other move: shown, not counted
+      }
     });
     const tIn = Object.values(inc).reduce((x, v) => x + v, 0), tOut = Object.values(out).reduce((x, v) => x + v, 0);
     // grid from the Sunday on/before the start to the Saturday on/after the end
@@ -1187,10 +1198,10 @@
       <div class="card" style="padding:10px 12px"><div class="bar3" style="font-size:16px"><span class="green">▴ ${money(tIn)}</span><span class="red">▾ ${money(tOut)}</span><span>= ${signed(tIn - tOut)}</span></div></div>
       <div class="calgrid" role="grid" aria-label="${monthLabel(mk)}">
         ${['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((x) => `<span class="calhd" aria-hidden="true">${x}</span>`).join('')}
-        ${cells.map((c) => { const inM = c >= bm.start && c <= bm.end; const n = net[c] || 0; const has = inc[c] || out[c];
-          return `<button class="calday ${inM ? '' : 'off'} ${c === TODAY ? 'today' : ''} ${c === sel ? 'sel' : ''}" ${inM ? `data-act="calDay" data-v="${c}"` : 'disabled'} aria-label="${E.fmtDay(c)}${has ? `, net ${signed(n)}` : ''}"><span class="dn">${Number(c.slice(8))}</span>${inM && has ? `<span class="dv ${n > 0.004 ? 'green' : n < -0.004 ? 'red' : 'muted'}">${n > 0.004 ? '+' : n < -0.004 ? '−' : ''}${kf(n)}</span>` : ''}</button>`; }).join('')}
+        ${cells.map((c) => { const inM = c >= bm.start && c <= bm.end; const n = net[c] || 0; const has = inc[c] || out[c]; const xo = !has && xfer[c];
+          return `<button class="calday ${inM ? '' : 'off'} ${c === TODAY ? 'today' : ''} ${c === sel ? 'sel' : ''}" ${inM ? `data-act="calDay" data-v="${c}"` : 'disabled'} aria-label="${E.fmtDay(c)}${has ? `, net ${signed(n)}` : ''}${inM && xfer[c] ? ', card payment or transfer' : ''}"><span class="dn">${Number(c.slice(8))}</span>${inM && has ? `<span class="dv ${n > 0.004 ? 'green' : n < -0.004 ? 'red' : 'muted'}">${n > 0.004 ? '+' : n < -0.004 ? '−' : ''}${kf(n)}</span>` : ''}${inM && xfer[c] ? `<span class="dx${xo ? ' solo' : ''}" aria-hidden="true">⇄</span>` : ''}</button>`; }).join('')}
       </div>
-      ${sel ? (() => { const day = list.filter((t) => t.date === sel).sort((a, b) => (a.type > b.type ? 1 : -1)); return day.length ? dayGroups(day, []) : `<div class="empty">Nothing on ${E.fmtDay(sel)}.</div>`; })() : '<p class="muted small" style="margin:0;text-align:center">Tap a day to see its transactions. Transfers and balance corrections don’t count toward a day’s net.</p>'}
+      ${sel ? (() => { const day = list.filter((t) => t.date === sel).sort((a, b) => (a.type > b.type ? 1 : -1)); return day.length ? dayGroups(day, []) : `<div class="empty">Nothing on ${E.fmtDay(sel)}.</div>`; })() : '<p class="muted small" style="margin:0;text-align:center">Tap a day to see its transactions. Savings moves and loan payments count toward a day’s net. ⇄ marks card payments and other transfers, which don’t count.</p>'}
     </section>`;
   }
 
