@@ -1489,12 +1489,14 @@
     occ: (sh) => {
       const r = S.rules.find((x) => x.id === sh.ruleId);
       const name = r.template.title || (cat(r.template.category) || {}).name || 'Recurring';
+      // an upcoming payment skips from its own date; a posted one skips from the next payment due
+      const skipStart = sh.txId ? (E.occurrences(r, E.addDays(sh.date > TODAY ? sh.date : TODAY, 1), E.addDays(TODAY, 4000), E.ctxOf(S))[0] || null) : sh.date;
       if (sh.step === 'skip') {
         return `<div class="scrim" data-act="closeSheet"><div class="sheet" role="dialog" aria-label="Skip payments" data-stop="1">
-        <div class="between"><div style="display:flex;flex-direction:column;gap:2px"><h3 style="margin:0">Skip ${esc(name)}</h3><span class="muted small">Starting ${E.fmtDay(sh.date)}</span></div><button class="iconbtn" style="background:transparent" data-act="closeSheet" aria-label="Close">${svg('close')}</button></div>
+        <div class="between"><div style="display:flex;flex-direction:column;gap:2px"><h3 style="margin:0">Skip ${esc(name)}</h3><span class="muted small">Starting ${E.fmtDay(skipStart)}, ${skipStart.slice(0, 4)}</span></div><button class="iconbtn" style="background:transparent" data-act="closeSheet" aria-label="Close">${svg('close')}</button></div>
         <label class="field" style="background:var(--card2)"><span class="lbl">Skip</span><input id="skipCount" type="number" min="1" inputmode="numeric" value="1" style="width:70px"><span class="muted">payment(s)</span></label>
         <p class="muted small" style="margin:0">Skips this payment and the next ones in a row. Undo any time from More → Subscriptions.</p>
-        <div class="row"><button class="btn grow" data-act="occBack">Back</button><button class="btn primary grow" data-act="skipFrom" data-id="${r.id}" data-v="${sh.date}">Skip</button></div>
+        <div class="row"><button class="btn grow" data-act="occBack">Back</button><button class="btn primary grow" data-act="skipFrom" data-id="${r.id}" data-v="${skipStart}">Skip</button></div>
       </div></div>`;
       }
       return `<div class="scrim" data-act="closeSheet"><div class="sheet" role="dialog" aria-label="Upcoming payment" data-stop="1">
@@ -1503,7 +1505,8 @@
           <div class="grow" style="display:flex;flex-direction:column;gap:2px;min-width:0"><h3 style="margin:0">${esc(name)}</h3><span class="muted small">${E.fmtDay(sh.date)}, ${sh.date.slice(0, 4)}</span></div>
           <button class="iconbtn" style="background:transparent" data-act="closeSheet" aria-label="Close">${svg('close')}</button>
         </div>
-        <button class="btn" data-act="occSkip">Skip recurring payment</button>
+        ${sh.txId ? `<button class="btn" data-act="editTx" data-id="${sh.txId}">Edit this payment</button><button class="btn" data-act="duplicate" data-id="${sh.txId}">Duplicate</button>` : ''}
+        ${skipStart ? `<button class="btn" data-act="occSkip">Skip recurring payment</button>` : ''}
         <button class="btn danger" data-act="occDeleteAll" data-id="${r.id}" data-v="${sh.date}">Delete all</button>
       </div></div>`;
     },
@@ -1666,7 +1669,12 @@
         ask('Delete transaction?', 'Yes', async () => { const t = S.transactions.find((x) => x.id === id); t.deleted = true; t.updatedAt = new Date().toISOString(); await save('transactions'); toast('Deleted', async () => { t.deleted = false; t.updatedAt = new Date().toISOString(); await save('transactions'); toast('Restored'); }); });
         break;
       }
-      case 'txMore': ui.sheet = { name: 'txMore', id }; render(); break;
+      case 'txMore': {
+        // recurring payments (upcoming or already posted) get the recurring menu; one-off transactions keep the simple menu
+        if (id.startsWith('proj:')) { const [rid, date] = id.slice(5).split('|'); if (S.rules.some((r) => r.id === rid)) { ui.sheet = { name: 'occ', ruleId: rid, date }; render(); break; } }
+        else { const t = S.transactions.find((x) => x.id === id); if (t && t.ruleId && S.rules.some((r) => r.id === t.ruleId)) { ui.sheet = { name: 'occ', ruleId: t.ruleId, date: t.date, txId: t.id }; render(); break; } }
+        ui.sheet = { name: 'txMore', id }; render(); break;
+      }
       case 'makeRecurring': { const t = S.transactions.find((x) => x.id === id); ui.sheet = null; ui.form = newForm({ edit: t }); ui.form.mode = 'recurring'; push({ name: 'add' }); break; }
       case 'editTx': { const t = S.transactions.find((x) => x.id === id); ui.sheet = null; openForm({ edit: t }); break; }
       case 'confirmYes': { const fn = ui.sheet && ui.sheet.onYes; ui.sheet = null; if (fn) await fn(); render(); break; }
