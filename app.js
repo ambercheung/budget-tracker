@@ -250,6 +250,7 @@
   }
   function render() {
     if (E.resetCache) E.resetCache();
+    { const tc = S.settings.typeColors || {}, st = document.documentElement.style; ['bank', 'savings', 'credit', 'loan'].forEach((t) => { if (tc[t]) st.setProperty('--' + t, tc[t]); else st.removeProperty('--' + t); }); }
     const top = ui.stack[ui.stack.length - 1];
     let html = '';
     try {
@@ -395,6 +396,15 @@
   const bar = (pct, color, h = 8) => `<div class="pbar" style="height:${h}px"><div style="width:${Math.max(0, Math.min(100, pct))}%;background:${color}"></div></div>`;
   const budgetAmt = (id, mk) => { const b = E.budgetFor(S.budgets, id, mk); return b ? b.amount : 0; };
   const savW = () => S.wallets.filter((w) => w.type === 'savings');
+  // registered account kinds; older accounts without a kind are guessed from their name
+  const KINDS = [['regular', 'Regular'], ['tfsa', 'TFSA'], ['rrsp', 'RRSP'], ['fhsa', 'FHSA']];
+  const KIND_LABEL = Object.fromEntries(KINDS);
+  const GROUP_KINDS = { bank: [['chequing', 'Chequing'], ['other', 'Other']], savings: KINDS, credit: [['card', 'Credit card']], loan: [['loan', 'Loan'], ['loc', 'Line of credit'], ['mortgage', 'Mortgage']] };
+  const GROUP_NAME = { bank: 'Bank', savings: 'Savings', credit: 'Credit', loan: 'Loan' };
+  const walletKind = (w) => { if (!w || w.type !== 'savings') return null; if (w.kind) return w.kind; const n = String(w.name || ''); return /tfsa/i.test(n) ? 'tfsa' : /rrsp/i.test(n) ? 'rrsp' : /fhsa/i.test(n) ? 'fhsa' : 'regular'; };
+  const inRoom = (w) => w.inRoom !== false && w.inRoom !== 'false';
+  // contribution room is shared by every account of a kind; older per-account rooms are used until one is set
+  const roomFor = (kind) => { const r = Number((S.settings.roomByKind || {})[kind]); if (r > 0) return r; return savW().filter((w) => walletKind(w) === kind && inRoom(w)).reduce((t, w) => t + (Number(w.room) || 0), 0); };
   const debtW = () => S.wallets.filter((w) => w.type === 'credit' || w.type === 'loan');
   const incCatsTop = () => S.categories.filter((c) => c.type === 'income' && !c.parent);
   // yearly savings goals live in settings: { [year]: { [walletId]: { mode: 'in' | 'end', amount } } }
@@ -493,10 +503,13 @@
     const cy = TODAY.slice(0, 4);
     const ytd = E.transactionsInRange(S, `${cy}-01-01`, TODAY);
     const showRoom = yr === cy;
-    const room = S.wallets.filter((w) => w.type === 'savings' && Number(w.room) > 0).map((w) => {
-      const used = ytd.filter((t) => t.type === 'transfer' && t.toWallet === w.name && t.wallet !== w.name).reduce((x, t) => x + Number(t.amount), 0);
-      return { w, used, limit: Number(w.room) };
-    });
+    const room = ['tfsa', 'rrsp', 'fhsa'].map((kind) => {
+      const accts = savW().filter((w) => walletKind(w) === kind && inRoom(w));
+      const names = new Set(accts.map((w) => w.name));
+      // money moved in from outside the group; a move between two of your TFSAs isn't a new contribution
+      const per = accts.map((w) => ({ w, a: ytd.filter((t) => t.type === 'transfer' && t.toWallet === w.name && !names.has(t.wallet)).reduce((x, t) => x + Number(t.amount), 0) }));
+      return { kind, per, used: per.reduce((x, p) => x + p.a, 0), limit: roomFor(kind) };
+    }).filter((r) => r.per.length && r.limit > 0);
     const line = (l, v) => `<span class="between"><span>${l}</span><span>${v}</span></span>`;
     return `<section class="screen">
       <div class="between"><h1>Home</h1><label class="yearpick"><span class="sr">Year</span><select data-homeyear="1" aria-label="Year">${years.map((y) => `<option value="${y}" ${y === yr ? 'selected' : ''}>${y}</option>`).join('')}</select>${svg('chevDown', 16, 'currentColor', 2.5)}</label></div>
@@ -519,8 +532,8 @@
         ${breakdown(sav)}
       </section>
       ${showRoom ? `<section class="card" style="gap:10px" aria-label="Contribution room">
-        <h2 class="ctitle">${cy} Contribution Room</h2>
-        ${room.length ? room.map((r) => `<div style="display:flex;flex-direction:column;gap:4px"><div class="between" style="font-size:13px"><b>${esc(r.w.name)}</b><span class="muted">${money(r.used)} of ${money(r.limit)} · <b style="color:var(--text)">${pctOf(r.used, r.limit)}%</b></span></div>${bar(pctOf(r.used, r.limit), 'var(--pink)')}<span class="muted" style="font-size:12px">${r.used > r.limit ? `<span class="red">${money(r.used - r.limit)} over</span>` : `${money(r.limit - r.used)} left`}</span></div>`).join('') : `<p class="muted small" style="margin:0">Add your contribution room on a TFSA or RRSP in More → Accounts.</p>`}
+        <div class="between"><h2 class="ctitle" style="margin:0">${cy} Contribution Room</h2><button class="linkbtn" data-act="roomPick">Choose accounts</button></div>
+        ${room.length ? room.map((r) => `<div style="display:flex;flex-direction:column;gap:4px"><div class="between" style="font-size:13px"><b>${KIND_LABEL[r.kind]}</b><span class="muted">${money(r.used)} of ${money(r.limit)} · <b style="color:var(--text)">${pctOf(r.used, r.limit)}%</b></span></div>${bar(pctOf(r.used, r.limit), 'var(--pink)')}<span class="muted" style="font-size:12px">${r.used > r.limit ? `<span class="red">${money(r.used - r.limit)} over</span>` : `${money(r.limit - r.used)} left`}</span>${r.per.length > 1 ? `<span class="muted" style="font-size:12px">${r.per.map((p) => `${esc(p.w.name)} ${money(p.a)}`).join(' · ')}</span>` : ''}</div>`).join('') : `<p class="muted small" style="margin:0">Set an account type (TFSA, RRSP or FHSA) and its contribution room in More → Accounts.</p>`}
       </section>` : ''}
     </section>`;
   }
@@ -672,6 +685,18 @@
     return f;
   }
   function openForm(opts) { ui.form = newForm(opts); push({ name: 'add' }); }
+  // keypad maths: + − × ÷ with the usual order; returns null while incomplete
+  function calcExpr(ex) {
+    const toks = String(ex || '').match(/\d*\.?\d+|\d+\.|[+−×÷]/g); if (!toks) return null;
+    const nums = [], ops = [];
+    for (const t of toks) { if (/[+−×÷]/.test(t)) ops.push(t); else nums.push(parseFloat(t)); }
+    if (nums.length !== ops.length + 1) { if (nums.length === ops.length && nums.length) ops.pop(); else return null; }
+    const n = [nums[0]], o = [];
+    ops.forEach((op, i) => { const b = nums[i + 1]; if (op === '×') n[n.length - 1] *= b; else if (op === '÷') n[n.length - 1] = b ? n[n.length - 1] / b : 0; else { o.push(op); n.push(b); } });
+    let r = n[0]; o.forEach((op, i) => { r = op === '+' ? r + n[i + 1] : r - n[i + 1]; });
+    return Math.round(r * 100) / 100;
+  }
+  const wizGo = (step) => { const sh = ui.sheet; sh.hist = [...(sh.hist || []), sh.step]; sh.step = step; render(); };
 
   function renderAdd() {
     const f = ui.form;
@@ -698,10 +723,10 @@
       <section class="hero" style="background:${heroBg}">
         <div class="typebar" role="tablist" aria-label="Transaction type">${['expense', 'income', 'transfer'].map((k) => `<button role="tab" aria-selected="${f.type === k}" class="${f.type === k ? 'on' : ''}" data-act="type" data-v="${k}">${svg(TI[k][1], 16, TI[k][2], 2.6)}${TI[k][0]}</button>`).join('')}</div>
         <div class="row" style="gap:14px">
-          ${isT ? `<span class="bigicon" style="display:flex">${svg('transfer', 40, '#fff', 1.8)}</span>` : `<button class="bigicon" data-act="pickcat" aria-label="Change category">${svg(parent ? parent.icon : 'plus', 40, '#fff', 1.8)}</button>`}
+          ${isT ? `<span class="bigicon" style="display:flex">${svg('transfer', 40, '#fff', 1.8)}</span>` : `<button class="bigicon" data-act="pickcat" aria-label="Change category">${svg(parent ? parent.icon : 'plus', 40, '#fff', 1.8)}<span class="bigicon-badge" aria-hidden="true">${svg('chevDown', 14, '#fff', 3)}</span></button>`}
           <div class="grow" style="display:flex;flex-direction:column;align-items:flex-end">
             <label class="amountwrap"><span class="sr">Amount</span><span class="cur" aria-hidden="true">$</span><input class="amount" inputmode="decimal" placeholder="0" value="${esc(f.amount)}" data-bind="amount"></label>
-            <span class="catname">${isT ? 'Transfer' : parent ? esc(parent.name) : 'Pick a category'}</span>
+            ${isT ? `<span class="catname">Transfer</span>` : `<button class="catname catbtn" data-act="pickcat" aria-label="Change category: ${parent ? esc(parent.name) : 'none picked'}">${parent ? esc(parent.name) : 'Pick a category'}${svg('chevDown', 20, '#fff', 2.6)}</button>`}
           </div>
         </div>
         ${!isT && subs.length ? `<div class="hscroll" role="group" aria-label="Subcategory" style="margin:0 -16px;padding:0 16px">${[{ id: '', name: 'None' }].concat(subs).map((s) => `<button class="chip ${(f.subId || '') === s.id ? 'on' : ''}" data-act="sub" data-v="${s.id}">${esc(s.name)}</button>`).join('')}</div>` : ''}
@@ -827,21 +852,43 @@
     const sw = (k) => `<button class="switch ${w[k] ? 'on' : ''}" role="switch" aria-checked="${!!w[k]}" data-act="wtoggle" data-k="${k}" aria-label="In net worth"></button>`;
     return `<section class="screen sub">${header(scr.isNew ? 'Add Account' : 'Edit Account', scr.isNew ? {} : { right: `<button class="iconbtn" data-act="walletDelete" aria-label="Delete account">${svg('trash', 22, 'var(--red)')}</button>` })}
       <label class="field"><span class="lbl">Name</span><input value="${esc(w.name)}" data-wbind="name" placeholder="[Bank] Account"></label>
-      <div class="field"><label for="wt">Type</label><select id="wt" data-wbind="type" data-rerender="1">${['bank', 'savings', 'credit', 'loan'].map((t) => `<option value="${t}" ${w.type === t ? 'selected' : ''}>${TYPE_LABEL[t].replace(/s$/, '')}</option>`).join('')}</select></div>
+      ${(() => {
+        const kinds = GROUP_KINDS[w.type] || [];
+        if (!kinds.some(([v]) => v === w.kind)) w.kind = w.type === 'savings' ? walletKind({ ...w, kind: null }) : kinds[0][0];
+        return `<div class="row" style="gap:8px"><div class="field stackfield grow"><label for="wt">Group</label><select id="wt" data-wbind="type" data-rerender="1">${['bank', 'savings', 'credit', 'loan'].map((t) => `<option value="${t}" ${w.type === t ? 'selected' : ''}>${GROUP_NAME[t]}</option>`).join('')}</select></div>
+        <div class="field stackfield grow"><label for="wk">Account type</label><select id="wk" data-wbind="kind" data-rerender="1">${kinds.map(([v, l]) => `<option value="${v}" ${w.kind === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div>`; })()}
       <label class="field"><span class="lbl">${w.type === 'credit' || w.type === 'loan' ? 'Amount owed' : 'Opening balance'}</span><input inputmode="decimal" value="${esc(w.opening)}" data-wbind="opening"></label>
       <label class="field"><span class="lbl">As of</span><input type="date" value="${esc(w.openingDate)}" data-wbind="openingDate"></label>
+      ${(() => {
+        const reg = w.type === 'savings' && w.kind !== 'regular';
+        if (reg) { if (scr.roomVal == null || scr.roomKind !== w.kind) { scr.roomKind = w.kind; scr.roomVal = roomFor(w.kind) ? String(roomFor(w.kind)) : ''; } }
+        const hint = reg ? `Your ${TODAY.slice(0, 4)} ${KIND_LABEL[w.kind]} contribution room, shared by all your ${KIND_LABEL[w.kind]} accounts. Changing it here changes it for every ${KIND_LABEL[w.kind]}.`
+          : w.type === 'credit' ? 'Your credit limit.' : w.type === 'loan' ? 'Optional, e.g. for a line of credit.' : 'Optional.';
+        return `<label class="field"><span class="lbl">Account limit</span><span class="muted">$</span>${reg ? `<input inputmode="decimal" placeholder="From CRA My Account" value="${esc(scr.roomVal)}" data-xbind="roomVal">` : `<input inputmode="decimal" placeholder="${w.type === 'credit' ? 'e.g. 5000' : 'Optional'}" value="${esc(w.limit || '')}" data-wbind="limit">`}</label>
+      <p class="muted small" style="margin:-4px 0 0">${hint}</p>`; })()}
       ${(w.type === 'credit' || w.type === 'loan') ? (() => {
         if (!w.due) w.due = { start: w.dueDay ? E.nextDue(w, TODAY) : '', every: 1, unit: 'month' };
         const units = [['day', 'day(s)'], ['week', 'week(s)'], ['month', 'month(s)'], ['monthStart', 'month(s) · 1st'], ['monthEnd', 'month(s) · last day'], ['year', 'year(s)']];
         const nd = w.due.start ? E.nextDue({ due: { ...w.due, every: Number(w.due.every) || 1 } }, TODAY) : null;
-        return `<label class="field"><span class="lbl">${w.type === 'loan' ? 'Limit (optional)' : 'Credit limit'}</span><span class="muted">$</span><input inputmode="decimal" placeholder="${w.type === 'loan' ? 'For a line of credit' : 'e.g. 5000'}" value="${esc(w.limit || '')}" data-wbind="limit"></label>
-      <div class="card" style="gap:10px"><span style="font-weight:800">Payment due</span>
+        return `<div class="card" style="gap:10px"><span style="font-weight:800">Payment due</span>
         <div class="row"><div class="field" style="background:var(--card2);flex:0 0 118px;min-width:0"><label for="dev" style="min-width:0">Every</label><input id="dev" type="number" min="1" inputmode="numeric" value="${esc(w.due.every)}" data-wbind="due.every" data-rerender="1" style="width:100%;min-width:0"></div><div class="field grow" style="background:var(--card2);min-width:0"><select style="width:100%;min-width:0" aria-label="Repeat unit" data-wbind="due.unit" data-rerender="1">${units.map(([v, l]) => `<option value="${v}" ${w.due.unit === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div>
         <label class="field" style="background:var(--card2)"><span class="lbl">Next due date</span><input type="date" value="${esc(w.due.start || '')}" data-wbind="due.start" data-rerender="1"></label>
         <p class="muted small" style="margin:0">${nd ? `Next payment due ${E.fmtDay(nd)}, ${nd.slice(0, 4)} · in ${E.diffDays(TODAY, nd)} day${E.diffDays(TODAY, nd) === 1 ? '' : 's'}.` : 'Pick the next due date to see the countdown on Accounts.'}</p>
       </div>`; })() : ''}
-      ${w.type === 'savings' ? `<label class="field"><span class="lbl">${TODAY.slice(0, 4)} contribution room</span><input inputmode="decimal" placeholder="TFSA / RRSP only" value="${esc(w.room || '')}" data-wbind="room"></label>` : ''}
-      <div class="card"><div class="between"><span style="font-weight:800">Include in net worth</span>${sw('inNetWorth')}</div></div>
+      ${(() => {
+        const cur = (scr.grpColor && scr.grpColor !== 'default' && scr.grpColor) || (scr.grpColor !== 'default' && (S.settings.typeColors || {})[w.type]) || getComputedStyle(document.documentElement).getPropertyValue('--' + w.type).trim();
+        const swb = (col) => `<button style="background:${col}" class="${String(cur).toLowerCase() === col.toLowerCase() ? 'on' : ''}" data-act="grpColor" data-v="${col}" aria-label="Colour ${col}"></button>`;
+        return `<div class="card" style="gap:0;padding:0 16px">
+        <button class="wmorebar" data-act="wMore" aria-expanded="${!!scr.moreOpen}" style="min-height:52px"><span style="font-weight:800">More options</span>${svg(scr.moreOpen ? 'chevUp' : 'chevDown', 18, 'var(--muted)', 2.5)}</button>
+        ${scr.moreOpen ? `<div style="display:flex;flex-direction:column;gap:6px;padding-bottom:14px">
+          <div class="between" style="min-height:48px;border-top:1px solid var(--line)"><span style="font-weight:700">Include in net worth</span>${sw('inNetWorth')}</div>
+          <div class="between" style="min-height:48px;border-top:1px solid var(--line)"><span style="font-weight:700">Group colour<span class="muted small" style="display:block;font-weight:400">All ${GROUP_NAME[w.type]} accounts</span></span><button class="grpdot" data-act="grpColorOpen" aria-expanded="${!!scr.colorOpen}" aria-label="Choose group colour" style="background:${cur}"></button></div>
+          ${scr.colorOpen ? `<div class="swgrid">${COLOR_FAMILIES.map((f) => f.map(swb).join('')).join('')}</div>
+          ${(() => { const custom = (S.settings.customColors || []).filter((x) => !COLOR_CHOICES.some((y) => y.toLowerCase() === x.toLowerCase())); const chosen = (scr.grpColor && scr.grpColor !== 'default') || (scr.grpColor !== 'default' && (S.settings.typeColors || {})[w.type]);
+            const isCustom = !!chosen && /^#/.test(cur) && ![...COLOR_CHOICES, ...custom].some((x) => x.toLowerCase() === String(cur).toLowerCase());
+            return `<div class="swatches">${custom.map(swb).join('')}<label class="swcustom ${isCustom ? 'on' : ''}" title="Custom colour" style="--c:${/^#/.test(cur) ? cur : '#888888'}"><input type="color" value="${/^#[0-9a-f]{6}$/i.test(cur) ? cur : '#888888'}" data-xbind="grpColor" data-rerender="1" aria-label="Pick a custom colour"></label></div>`; })()}${((S.settings.typeColors || {})[w.type] && scr.grpColor !== 'default') || (scr.grpColor && scr.grpColor !== 'default') ? '<button class="linkbtn" style="align-self:flex-start" data-act="grpColor" data-v="">Use default colour</button>' : ''}` : ''}
+        </div>` : ''}
+      </div>`; })()}
       <p class="warn" id="wwarn" style="margin:0"></p>
       <button class="btn primary" data-act="walletSave">Save</button>
     </section>`;
@@ -1546,6 +1593,11 @@
         <div class="acctgroup" style="border-color:var(--pink)" role="radiogroup">${opt('all', 'Budget month', bm.start, bm.end)}${bm.pays.map((p, i) => opt(i, p.label, p.start, p.end)).join('')}</div>
       </div></div>`;
     },
+    roomPick: () => { const regs = savW().filter((w) => walletKind(w) !== 'regular'); return `<div class="scrim" data-act="closeSheet"><div class="sheet" role="dialog" aria-label="Contribution room accounts" data-stop="1">
+        <div class="between"><h3>Contribution Room Accounts</h3><button class="iconbtn" style="background:transparent" data-act="closeSheet" aria-label="Close">${svg('close')}</button></div>
+        <p class="muted small" style="margin:0">Accounts of the same type share one contribution room.</p>
+        ${regs.length ? ['tfsa', 'rrsp', 'fhsa'].map((k) => { const items = regs.filter((w) => walletKind(w) === k); return items.length ? `<div class="acctgroup" style="border-color:var(--savings)"><span class="muted small" style="padding:4px 16px 0;font-weight:700">${KIND_LABEL[k]}${roomFor(k) ? ` · ${money(roomFor(k))} room` : ''}</span>${items.map((w) => `<button class="acctrow" data-act="roomToggle" data-id="${w.id}" role="switch" aria-checked="${inRoom(w)}"><b class="grow" style="text-align:left">${esc(w.name)}</b><span class="switch ${inRoom(w) ? 'on' : ''}" aria-hidden="true"></span></button>`).join('')}</div>` : ''; }).join('') : '<p class="muted small" style="margin:0">No TFSA, RRSP or FHSA accounts yet. Set an account type in More → Accounts.</p>'}
+      </div></div>`; },
     nwPick: () => `<div class="scrim" data-act="closeSheet"><div class="sheet" role="dialog" aria-label="Net worth accounts" data-stop="1">
         <div class="between"><h3>Net Worth Accounts</h3><button class="iconbtn" style="background:transparent" data-act="closeSheet" aria-label="Close">${svg('close')}</button></div>
         <p class="muted small" style="margin:0">Cards and loans are subtracted.</p>
@@ -1569,6 +1621,32 @@
         <h3>${esc(sh.message)}</h3>
         <div class="row"><button class="btn grow" data-act="closeSheet">No</button><button class="btn danger grow" data-act="confirmYes">${esc(sh.yesLabel)}</button></div>
       </div></div>`,
+    wiz: (sh) => {
+      const f = ui.form; if (!f) return '';
+      const back = sh.hist && sh.hist.length ? `<button class="iconbtn" style="background:transparent" data-act="wizBack" aria-label="Back">${svg('back', 22)}</button>` : '';
+      const head = (t) => `<div class="between"><span class="row" style="gap:4px">${back}<h3>${t}</h3></span><button class="iconbtn" style="background:transparent" data-act="closeSheet" aria-label="Close">${svg('close')}</button></div>`;
+      const tile = (act, id, name, icon, color, on) => `<button class="cattile ${on ? 'on' : ''}" data-act="${act}" data-v="${id}"><span class="t" style="background:${color}">${svg(icon, 28, '#fff')}</span>${esc(name)}</button>`;
+      let body = '';
+      if (sh.step === 'cat') {
+        const list = S.categories.filter((c) => c.type === f.type && !c.parent);
+        body = head('Select Category') + `<div class="seg wizseg" role="group" aria-label="Transaction type">${[['expense', 'Expense', 'chevDown', 'var(--red)'], ['income', 'Income', 'chevUp', 'var(--green)'], ['transfer', 'Transfer', 'transfer', 'currentColor']].map(([k, l, ic, col]) => `<button class="${f.type === k ? 'on' : ''}" aria-pressed="${f.type === k}" data-act="wizType" data-v="${k}">${svg(ic, 16, col, 2.6)}${l}</button>`).join('')}</div>
+          <div class="grid4">${list.map((c) => tile('wizCat', c.id, c.name, c.icon, c.color, c.id === f.catId)).join('')}<button class="cattile" data-act="open" data-v="categories"><span class="t" style="background:#5E5A62">${svg('plus', 28, '#fff')}</span>Add</button></div>`;
+      } else if (sh.step === 'sub') {
+        const p = cat(f.catId), subs = S.categories.filter((c) => c.parent === f.catId);
+        body = head('Select Subcategory') + `<p class="muted small" style="margin:0">${esc(p ? p.name : '')}</p><div class="grid4">${tile('wizSub', '', 'None', 'close', '#5E5A62', !f.subId)}${subs.map((c) => tile('wizSub', c.id, c.name, c.icon || (p && p.icon), c.color || (p && p.color), f.subId === c.id)).join('')}</div>`;
+      } else if (sh.step === 'acct' || sh.step === 'to') {
+        const field = sh.step === 'to' ? 'toWallet' : 'wallet', bal = E.balances(S, TODAY);
+        const title = f.type === 'transfer' ? (sh.step === 'to' ? 'To Account' : 'From Account') : 'Select Account';
+        body = head(title) + ['bank', 'savings', 'credit', 'loan'].map((t) => { const items = S.wallets.filter((w) => w.type === t && !(sh.step === 'to' && w.name === f.wallet)); return items.length ? `<div class="acctgroup" style="border-color:${TYPE_COLOR[t]}">${items.map((w) => { const b = bal[w.name] || 0, owed = t === 'credit' || t === 'loan'; const v = owed ? -b : b; return `<button class="acctrow" data-act="wizAcct" data-f="${field}" data-v="${esc(w.name)}"><span class="ring" style="border-color:${TYPE_COLOR[t]};background:${f[field] === w.name ? TYPE_COLOR[t] : 'transparent'}"></span><b class="grow" style="text-align:left">${esc(w.name)}</b><span class="muted">${v < -0.004 ? '−' : ''}${money(Math.abs(v))}</span></button>`; }).join('')}</div>` : ''; }).join('');
+      } else if (sh.step === 'amt') {
+        const ex = sh.expr || '', val = calcExpr(ex), hasOp = /[÷×−+]/.test(ex);
+        const keys = ['1', '2', '3', '÷', '4', '5', '6', '×', '7', '8', '9', '−', '.', '0', 'del', '+'];
+        body = head('Enter Amount') + `<div class="wizamt" aria-live="polite"><span class="muted small">${hasOp ? esc(ex) : '&nbsp;'}</span><b>${ex ? money(val == null ? 0 : val) : '$0'}</b></div>
+          <div class="keypad">${keys.map((k) => `<button data-act="wizKey" data-v="${k}" aria-label="${k === 'del' ? 'Delete' : k}" class="${/[÷×−+]/.test(k) ? 'op' : ''}">${k === 'del' ? svg('back', 22) : k}</button>`).join('')}</div>
+          <button class="btn primary" data-act="wizDone" ${val > 0 ? '' : 'disabled'}>Review Transaction</button>`;
+      }
+      return `<div class="scrim" data-act="closeSheet"><div class="sheet wizsheet" role="dialog" aria-label="Add transaction" data-stop="1">${body}</div></div>`;
+    },
     cats: () => {
       const f = ui.form;
       const list = S.categories.filter((c) => c.type === f.type && !c.parent);
@@ -1759,10 +1837,29 @@
       }
       case 'toggleUp': ui.upOpen = !ui.upOpen; render(); break;
       case 'nwPick': ui.sheet = { name: 'nwPick' }; render(); break;
+      case 'roomPick': ui.sheet = { name: 'roomPick' }; render(); break;
+      case 'roomToggle': { const w = S.wallets.find((x) => x.id === id); w.inRoom = !inRoom(w); await save('wallets'); render(); break; }
+      case 'wMore': top.moreOpen = !top.moreOpen; render(); break;
+      case 'grpColorOpen': top.colorOpen = !top.colorOpen; render(); break;
+      case 'grpColor': top.grpColor = v || 'default'; top.colorOpen = false; render(); break;
       case 'nwToggle': { const w = S.wallets.find((x) => x.id === id); w.inNetWorth = !w.inNetWorth; await save('wallets'); render(); break; }
       case 'togglePays': ui.paysOpen = !ui.paysOpen; render(); break;
       case 'toggleFuture': ui.futureOpen = !ui.futureOpen; render(); break;
-      case 'add': openForm({}); break;
+      case 'add': openForm({}); ui.form.catId = null; ui.form.subId = null; ui.sheet = { name: 'wiz', step: 'cat', hist: [] }; render(); break;
+      case 'wizType': { f.type = v; f.catId = null; f.subId = null; if (v === 'transfer') { ui.sheet.hist = ['cat']; ui.sheet.step = 'acct'; } render(); break; }
+      case 'wizCat': f.catId = v; f.subId = null; wizGo(S.categories.some((c) => c.parent === v) ? 'sub' : 'acct'); break;
+      case 'wizSub': f.subId = v || null; wizGo('acct'); break;
+      case 'wizAcct': f[el.dataset.f] = v; if (el.dataset.f === 'wallet' && f.type === 'transfer') { if (f.toWallet === v) f.toWallet = (S.wallets.find((w) => w.name !== v) || {}).name; wizGo('to'); } else { ui.sheet.expr = f.amount && Number(f.amount) ? String(f.amount) : ''; wizGo('amt'); } break;
+      case 'wizBack': { const sh = ui.sheet; sh.step = sh.hist.pop(); if (sh.step === 'cat' && f.type === 'transfer') f.type = 'expense'; render(); break; }
+      case 'wizKey': {
+        const sh = ui.sheet; let ex = sh.expr || '';
+        if (v === 'del') ex = ex.slice(0, -1);
+        else if (/[÷×−+]/.test(v)) { if (!ex) break; ex = /[÷×−+]$/.test(ex) ? ex.slice(0, -1) + v : ex + v; }
+        else if (v === '.') { const last = ex.split(/[÷×−+]/).pop(); if (last.includes('.')) break; ex += last ? '.' : '0.'; }
+        else { const last = ex.split(/[÷×−+]/).pop(); if (/\.\d\d$/.test(last)) break; ex = (last === '0' ? ex.slice(0, -1) : ex) + v; }
+        sh.expr = ex.slice(0, 40); render(); break;
+      }
+      case 'wizDone': { const val = calcExpr(ui.sheet.expr); if (!(val > 0)) break; f.amount = String(val); ui.sheet = null; render(); break; }
       case 'back': goBack(); break;
       case 'edit': { const adj = S.transactions.find((x) => x.id === id); if (adj && adj.type === 'adjustment') { if (isLocked(adj.date)) { toast(lockMsg(adj.date)); break; } ask(`Delete this balance correction (${adj.note || money(adj.amount)})?`, 'Delete', async () => { adj.deleted = true; adj.updatedAt = new Date().toISOString(); await save('transactions'); toast('Deleted', async () => { adj.deleted = false; await save('transactions'); toast('Restored'); }); }); break; } }
       case 'editX': { const t = S.transactions.find((x) => x.id === id); if (t && t.ruleId) { const r = S.rules.find((x) => x.id === t.ruleId); if (r) { openForm({ edit: t }); break; } } if (t) openForm({ edit: t }); break; }
@@ -1833,7 +1930,13 @@
         const w = top.wallet; w.name = (w.name || '').trim();
         if (!w.name) { document.getElementById('wwarn').textContent = 'Give the account a name.'; break; }
         if (S.wallets.some((x) => x.name === w.name && x.id !== w.id)) { document.getElementById('wwarn').textContent = 'You already have an account with that name.'; break; }
-        w.opening = Number(String(w.opening).replace(/[$,\s]/g, '')) || 0; w.room = w.room ? Number(w.room) : null; w.limit = (w.type === 'credit' || w.type === 'loan') && Number(String(w.limit || '').replace(/[$,\s]/g, '')) > 0 ? Number(String(w.limit).replace(/[$,\s]/g, '')) : null;
+        w.opening = Number(String(w.opening).replace(/[$,\s]/g, '')) || 0; w.room = null;
+        if (top.grpColor) { S.settings.typeColors = { ...(S.settings.typeColors || {}) }; if (top.grpColor === 'default') delete S.settings.typeColors[w.type]; else S.settings.typeColors[w.type] = top.grpColor; await save('settings'); }
+        if (w.type === 'savings') {
+          w.kind = w.kind || walletKind(w); w.inRoom = w.kind === 'regular' ? true : inRoom(w);
+          if (w.kind !== 'regular') w.limit = null;
+          if (w.kind !== 'regular' && top.roomVal != null) { const rv = Number(String(top.roomVal).replace(/[$,\s]/g, '')); S.settings.roomByKind = { ...(S.settings.roomByKind || {}) }; if (rv > 0) S.settings.roomByKind[w.kind] = rv; else delete S.settings.roomByKind[w.kind]; await save('settings'); }
+        } else { w.inRoom = null; } w.limit = Number(String(w.limit || '').replace(/[$,\s]/g, '')) > 0 ? Number(String(w.limit).replace(/[$,\s]/g, '')) : null;
         if ((w.type === 'credit' || w.type === 'loan') && w.due && w.due.start) { w.due = { start: w.due.start, every: Math.max(1, Number(w.due.every) || 1), unit: w.due.unit || 'month' }; w.dueDay = null; } else if (w.type !== 'credit' && w.type !== 'loan') { w.due = null; w.dueDay = null; } else if (w.due && !w.due.start) w.due = null;
         const i = S.wallets.findIndex((x) => x.id === w.id);
         if (i >= 0) {

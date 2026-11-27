@@ -243,3 +243,21 @@ input[placeholder="—"]:placeholder-shown{text-align:center}
 .bsechead{display:flex;align-items:center;gap:10px;width:100%;background:transparent;border:0;padding:6px 0;min-height:44px;color:var(--text);text-align:left}
 .bsechead h2{margin:0;flex:1}
 .bsechead span{font-weight:700;font-size:14px}
+.field.stackfield{flex-direction:column;align-items:stretch;justify-content:center;gap:0;padding:6px 14px;min-height:62px;min-width:0;flex-basis:0}
+.field.stackfield label{min-width:0;font-size:12px}
+.field.stackfield select{width:100%;flex:none;padding:2px 0}
+.wmore .collapsebar,.wmorebar{display:flex;align-items:center;justify-content:space-between;width:100%;background:transparent;border:0;color:var(--text);padding:0;text-align:left;font:inherit}
+.grpdot{width:36px;height:36px;border-radius:18px;border:3px solid var(--card2);box-shadow:0 0 0 2px var(--line);flex:none;padding:0}
+.hero .bigicon{position:relative}
+.hero .bigicon-badge{position:absolute;right:-4px;bottom:-4px;width:24px;height:24px;border-radius:12px;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center}
+.hero .catbtn{display:inline-flex;align-items:center;gap:6px;background:transparent;border:0;padding:4px 0;color:#fff;font-family:inherit;font-size:20px;font-weight:700;min-height:44px;cursor:pointer}
+.wizsheet{gap:14px}
+.wizseg{display:flex;width:100%}
+.wizseg button{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;height:44px}
+.wizamt{display:flex;flex-direction:column;align-items:flex-end;gap:2px;padding:4px 4px 0;min-height:76px;justify-content:flex-end}
+.wizamt b{font-size:44px;font-weight:800;line-height:1.1}
+.keypad{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;background:var(--card2);border-radius:22px;padding:8px}
+.keypad button{height:58px;border:0;border-radius:14px;background:transparent;color:var(--text);font-family:inherit;font-size:26px;font-weight:600;line-height:1;display:flex;align-items:center;justify-content:center}
+.keypad button:active{background:rgba(255,255,255,.08)}
+.keypad button.op{color:var(--pink);font-size:28px}
+.btn[disabled]{opacity:.45}
