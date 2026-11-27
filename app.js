@@ -394,6 +394,38 @@
   const pctOf = (a, b) => (b > 0 ? Math.round(a / b * 100) : 0);
   const bar = (pct, color, h = 8) => `<div class="pbar" style="height:${h}px"><div style="width:${Math.max(0, Math.min(100, pct))}%;background:${color}"></div></div>`;
   const budgetAmt = (id, mk) => { const b = E.budgetFor(S.budgets, id, mk); return b ? b.amount : 0; };
+  const savW = () => S.wallets.filter((w) => w.type === 'savings');
+  const debtW = () => S.wallets.filter((w) => w.type === 'credit' || w.type === 'loan');
+  const incCatsTop = () => S.categories.filter((c) => c.type === 'income' && !c.parent);
+  // yearly savings goals live in settings: { [year]: { [walletId]: { mode: 'in' | 'end', amount } } }
+  const yearGoal = (w, yr) => (((S.settings.savingsGoals || {})[yr] || {})[w.id]) || null;
+  // A yearly goal's monthly amount. split: 'opt' = what's still needed ÷ budget months left (this one included),
+  // 'even' = the year's total ÷ 12, 'manual' = the monthly amount typed in (manualAmt).
+  function yearShare(w, mk, g, manualAmt) {
+    const H = hs(), yr = mk.slice(0, 4);
+    const monthsLeft = 13 - Number(mk.slice(5));
+    const mStart = E.budgetMonth(S.schedule, mk, H).start;
+    const first = [`${yr}-01`, E.monthKeyFor(S.schedule, S.settings.startDate, H)].sort().pop();
+    const ys = E.budgetMonth(S.schedule, first, H).start;
+    const amount = g && g.amount > 0 ? g.amount : 0;
+    let have = 0, yearStart = 0;
+    if (g && g.mode === 'end') { have = E.balances(S, E.addDays(mStart, -1))[w.name] || 0; yearStart = E.balances(S, E.addDays(ys, -1))[w.name] || 0; }
+    else if (ys < mStart) have = savingsByWallet(E.transactionsInRange(S, ys, E.addDays(mStart, -1)))[w.name] || 0;
+    const left = Math.max(0, amount - have);
+    const split = (g && g.split) || 'opt';
+    const reached = amount > 0 && left <= 0.004;
+    const share = !amount ? 0 : split === 'manual' ? r2(manualAmt || 0)
+      : reached ? (g.after === 'keep' ? r2(manualAmt || 0) : 0)   // goal already met: stop, or keep a set monthly amount
+      : split === 'even' ? r2(Math.max(0, amount - yearStart) / 12) : r2(left / monthsLeft);
+    return { share, have: r2(have), left: r2(left), monthsLeft, split, reached, after: (g && g.after) || 'stop' };
+  }
+  const savingsBudget = (w, mk) => { const g = yearGoal(w, mk.slice(0, 4)); return g ? yearShare(w, mk, g, budgetAmt('wallet:' + w.id, mk)).share : budgetAmt('wallet:' + w.id, mk); };
+  // spending money for a month = income budget − savings − debt payments (falls back to an older typed-in overall)
+  function overallFor(mk) {
+    const inc = incCatsTop().reduce((t, c) => t + budgetAmt(c.id, mk), 0);
+    if (!inc) return budgetAmt('overall', mk);
+    return r2(inc - savW().reduce((t, w) => t + savingsBudget(w, mk), 0) - debtW().reduce((t, w) => t + budgetAmt('debt:' + w.id, mk), 0));
+  }
   // savings moves into each savings account for a range (bank → savings, the same rule Money remaining uses)
   function savingsByWallet(list) {
     const out = {};
@@ -452,7 +484,7 @@
     const incA = inc.reduce((t, i) => t + i.a, 0), incB = inc.reduce((t, i) => t + i.b, 0);
     // savings: today's balance vs goal balance (balance when the year started + this year's goals), per account
     const now = E.balances(S, until), start = E.balances(S, E.addDays(ytdStart, -1));
-    const sav = S.wallets.filter((w) => w.type === 'savings').map((w) => { return { label: w.name.replace(/^\[[^\]]+\]\s*/, ''), a: now[w.name] || 0, b: (start[w.name] || 0) + sumBudget('wallet:' + w.id) }; });
+    const sav = S.wallets.filter((w) => w.type === 'savings').map((w) => { return { label: w.name.replace(/^\[[^\]]+\]\s*/, ''), a: now[w.name] || 0, b: (() => { const g = yearGoal(w, yr); if (g && g.mode === 'end') return g.amount; if (g) return (start[w.name] || 0) + g.amount; return (start[w.name] || 0) + sumBudget('wallet:' + w.id); })() }; });
     const savA = sav.reduce((t, i) => t + i.a, 0), savB = sav.reduce((t, i) => t + i.b, 0), savAB = sav.filter((i) => i.b).reduce((t, i) => t + i.a, 0);
     const ratio = (a, b) => `${money(a)} / ${b ? money(b) : '—'}${b ? ` <span class="muted">(${pctOf(a, b)}%)</span>` : ''}`;
     const breakdown = (items) => { const ta = items.reduce((t, i) => t + i.a, 0), tb = items.reduce((t, i) => t + i.b, 0); return `<div class="lines" style="font-size:13px;gap:4px;border-top:1px solid var(--line);padding-top:10px;color:var(--text)">${items.map((i) => `<span class="between"><span style="font-weight:700">${esc(i.label)}</span><span>${ratio(i.a, i.b)}</span></span>`).join('')}
@@ -504,7 +536,7 @@
     const exp = list.filter((t) => t.type === 'expense');
     const spentIn = (id) => exp.filter((t) => { const c = cat(t.category); return t.category === id || t.sub === id || (c && c.parent === id); }).reduce((x, t) => x + Number(t.amount), 0);
     const subSpent = (sid) => exp.filter((t) => t.sub === sid || t.category === sid).reduce((x, t) => x + Number(t.amount), 0);
-    const overall = budgetAmt('overall', mk);
+    const overall = Math.max(0, overallFor(mk));
     const prog = (spent, budget, big) => {
       const over = spent > budget + 0.004, pc = pctOf(spent, budget);
       return `${bar(pc, over ? 'var(--red)' : 'var(--pink)', big ? 10 : 8)}<div class="between muted" style="font-size:12px"><span>${money(spent)} of ${money(budget)} · ${pc}%</span>${over ? `<span class="red">${money(spent - budget)} over</span>` : `<span>${money(budget - spent)} left</span>`}</div>`;
@@ -515,7 +547,9 @@
     const uncategorized = exp.filter((t) => !cat(t.category)).reduce((x, t) => x + Number(t.amount), 0);
     const incomeRows = S.categories.filter((c) => c.type === 'income' && !c.parent && budgetAmt(c.id, mk) > 0).map((c) => ({ c, b: budgetAmt(c.id, mk), a: list.filter((t) => t.type === 'income' && (t.category === c.id || (cat(t.category) || {}).parent === c.id)).reduce((x, t) => x + Number(t.amount), 0) }));
     const sv = savingsByWallet(list);
-    const goals = S.wallets.filter((w) => w.type === 'savings' && budgetAmt('wallet:' + w.id, mk) > 0).map((w) => ({ w, b: budgetAmt('wallet:' + w.id, mk), a: sv[w.name] || 0 }));
+    const goals = savW().map((w) => ({ w, b: savingsBudget(w, mk), a: sv[w.name] || 0 })).filter((g) => g.b > 0);
+    const paidTo = (w) => list.filter((t) => t.type === 'transfer' && t.toWallet === w.name).reduce((x, t) => x + Number(t.amount), 0);
+    const debts = debtW().filter((w) => budgetAmt('debt:' + w.id, mk) > 0).map((w) => ({ w, b: budgetAmt('debt:' + w.id, mk), a: paidTo(w) }));
     const goalRow = (name, a, b, color) => { const pc = pctOf(a, b); return `<div style="display:flex;flex-direction:column;gap:4px"><div class="between" style="font-size:13px"><b>${esc(name)}</b><span class="muted">${money(a)} / ${money(b)} · ${pc}%</span></div>${bar(pc, color)}</div>`; };
     return `
       <section class="card" style="gap:8px" aria-label="Overall spend budget">
@@ -537,6 +571,7 @@
       </section>
       ${incomeRows.length ? `<section class="card" style="gap:10px" aria-label="Income budget"><h2 class="ctitle">Income</h2>${incomeRows.map((r) => goalRow(r.c.name, r.a, r.b, 'var(--green)')).join('')}</section>` : ''}
       ${goals.length ? `<section class="card" style="gap:10px" aria-label="Savings goals"><h2 class="ctitle">Savings</h2>${goals.map((g) => goalRow(g.w.name, g.a, g.b, 'var(--pink)')).join('')}</section>` : ''}
+      ${debts.length ? `<section class="card" style="gap:10px" aria-label="Debt payments"><h2 class="ctitle">Debt</h2>${debts.map((g) => goalRow(g.w.name, g.a, g.b, 'var(--loan)')).join('')}</section>` : ''}
       <button class="btn outline" data-act="editBudgets" data-v="${mk}">Edit ${monthName(mk)} budgets</button>`;
   }
 
@@ -554,7 +589,7 @@
     const incCats = S.categories.filter((c) => c.type === 'income' && !c.parent);
     const incBy = (c) => list.filter((t) => t.type === 'income' && (t.category === c.id || (cat(t.category) || {}).parent === c.id)).reduce((x, t) => x + Number(t.amount), 0);
     const sv = savingsByWallet(list);
-    const overall = per === 'all' ? budgetAmt('overall', mk) : 0;
+    const overall = per === 'all' ? Math.max(0, overallFor(mk)) : 0;
     const upcoming = list.filter((t) => t.date > TODAY && t.type === 'expense');
     const upTot = upcoming.reduce((x, t) => x + Number(t.amount), 0);
     // spend by category
@@ -856,7 +891,7 @@
   const bnum = (v) => { const n = parseFloat(String(v == null ? '' : v).replace(/[$,%\s]/g, '')); return n > 0 ? n : 0; };
   const r2 = (n) => Math.round(n * 100) / 100;
   const fmtPct = (n) => (Math.round(n * 10) / 10).toString().replace(/\.0$/, '') + '%';
-  const budgetIds = () => ['overall'].concat(S.categories.map((c) => c.id), S.wallets.filter((w) => w.type === 'savings').map((w) => 'wallet:' + w.id));
+  const budgetIds = () => ['overall'].concat(S.categories.map((c) => c.id), savW().map((w) => 'wallet:' + w.id), debtW().map((w) => 'debt:' + w.id));
   function migrateBudgets() {
     if (!S.budgets.some((b) => !b.month)) return false;
     const first = E.monthKeyFor(S.schedule, S.settings.startDate, hs());
@@ -876,12 +911,14 @@
       if (basis === 'pct' && c && c.type === 'expense') {
         if (r.pct != null) vals[id] = String(r.pct);
         else {
-          const base = c.parent ? (res[c.parent] || {}).amount : (res.overall || {}).amount;
+          const base = c.parent ? (res[c.parent] || {}).amount : overallFor(mk);
           vals[id] = base ? String(Math.round(r.amount / base * 1000) / 10) : '';
         }
       } else vals[id] = String(r.amount);
     });
-    return { vals, rep, from };
+    const gmode = {}, gsplit = {}, gafter = {};
+    savW().forEach((w) => { const g = yearGoal(w, mk.slice(0, 4)); gmode[w.id] = g ? g.mode : 'month'; gsplit[w.id] = (g && g.split) || 'opt'; gafter[w.id] = (g && g.after) || 'stop'; if (g) vals['goal:' + w.id] = String(g.amount); });
+    return { vals, rep, from, gmode, gsplit, gafter };
   }
   function budgetDraft(scr) {
     if (scr.d) return scr.d;
@@ -892,8 +929,16 @@
     return scr.d;
   }
   // amounts and percentages for every spend entry. Parents are a share of overall; subs a share of their parent.
-  function budgetCalc(d) {
-    const overall = bnum(d.vals.overall);
+  function budgetCalc(d, mk) {
+    const inc = incCatsTop().reduce((t, c) => t + bnum(d.vals[c.id]), 0);
+    const share = {};
+    savW().forEach((w) => {
+      const m = (d.gmode || {})[w.id] || 'month';
+      share[w.id] = m === 'month' ? r2(bnum(d.vals['wallet:' + w.id])) : yearShare(w, mk, { mode: m, amount: bnum(d.vals['goal:' + w.id]), split: (d.gsplit || {})[w.id] || 'opt', after: (d.gafter || {})[w.id] || 'stop' }, bnum(d.vals['wallet:' + w.id])).share;
+    });
+    const sav = Object.values(share).reduce((t, v) => t + v, 0);
+    const debt = debtW().reduce((t, w) => t + bnum(d.vals['debt:' + w.id]), 0);
+    const overall = inc ? r2(inc - sav - debt) : 0;
     const amt = {}, pct = {};
     const one = (id, base) => {
       const n = bnum(d.vals[id]);
@@ -910,20 +955,26 @@
     const sumAmt = parents.reduce((t, p) => t + amt[p.id], 0);
     const sumPct = d.basis === 'pct' ? parents.reduce((t, p) => t + pct[p.id], 0) : (overall ? sumAmt / overall * 100 : 0);
     const left = (pid) => { const a = subsOf(pid).reduce((t, s) => t + amt[s.id], 0); return { amt: amt[pid] - a, pct: amt[pid] ? 100 - a / amt[pid] * 100 : 0 }; };
-    return { overall, amt, pct, unAmt: overall - sumAmt, unPct: 100 - sumPct, left };
+    return { inc, sav, debt, share, overall, amt, pct, sumAmt, unAmt: overall - sumAmt, unPct: 100 - sumPct, left };
   }
   function budgetHint(d, k, id, parentName) {
     if (!bnum(d.vals[id])) return '';
-    if (d.basis === 'pct') return k.amt[id] ? money(k.amt[id]) : (parentName ? `Set ${parentName} first` : 'Set overall first');
+    if (d.basis === 'pct') return k.amt[id] ? money(k.amt[id]) : (parentName ? `Set ${parentName} first` : 'Add income first');
     return k.pct[id] ? `${fmtPct(k.pct[id])} of ${parentName || 'spend'}` : '';
   }
   function unallocText(k) {
-    if (!k.overall) return { main: 'Set an overall spend budget', cls: 'muted' };
+    if (!k.inc) return { main: 'Add your income above', cls: 'muted' };
+    if (k.overall <= 0) return { main: 'Savings and debt use all your income', cls: 'red' };
     const over = k.unAmt < -0.004;
     return { main: `${over ? '−' : ''}${money(Math.abs(k.unAmt))} · ${fmtPct(Math.abs(k.unPct))} ${over ? 'over' : 'unallocated'}`, cls: over ? 'red' : 'green' };
   }
+  const GOAL_OPTS = {
+    mode: [['month', 'Monthly', 'The same budget each month'], ['in', 'Yearly total', 'How much to put in during the year'], ['end', 'Year-end balance', 'What the account should hold by December']],
+    split: [['opt', 'Optimized', 'What’s left ÷ months left. Adjusts if you get ahead or fall behind'], ['even', 'Even split', 'The year’s goal spread equally over 12 months'], ['manual', 'Manual', 'Type your own monthly amount']],
+    after: [['stop', 'Stop saving', 'Nothing set aside once the goal is reached'], ['keep', 'Keep saving', 'Switch to a set monthly amount once the goal is reached']]
+  };
   function renderBudgets(scr) {
-    const d = budgetDraft(scr), k = budgetCalc(d);
+    const d = budgetDraft(scr), k = budgetCalc(d, scr.month);
     const pctMode = d.basis === 'pct';
     const input = (id, ph, unit) => `<span class="bin">${unit === '$' ? '<span class="muted">$</span>' : ''}<input inputmode="decimal" placeholder="${ph}" value="${esc(d.vals[id] || '')}" data-bv="${id}">${unit === '%' ? '<span class="muted">%</span>' : ''}</span>`;
     const rep = (id) => `<button class="iconbtn brep ${d.rep[id] ? 'on' : ''} ${bnum(d.vals[id]) ? '' : 'hide'}" data-act="budgetRepeat" data-id="${id}" aria-pressed="${!!d.rep[id]}" aria-label="Repeat every month">${svg('repeat', 18, 'currentColor')}</button>`;
@@ -947,27 +998,57 @@
             ${input(s.id, '—', unit)}${rep(s.id)}<span class="bchev"></span></div>`).join('') + `<div class="muted small bleft" data-left="${p.id}">${k.amt[p.id] ? `${money(lf.amt)} · ${fmtPct(lf.pct)} of ${esc(p.name)} not in a subcategory` : ''}</div>` : ''}
       </div>`;
     };
-    const ua = unallocText(k);
+    const yr = mk.slice(0, 4);
+    const savRow = (w) => {
+      const m = d.gmode[w.id] || 'month', sp = d.gsplit[w.id] || 'opt', af = (d.gafter || {})[w.id] || 'stop', yearly = m !== 'month';
+      const pick = (kind, label, cur) => `<button class="bpick" data-act="goalPickOpen" data-id="${w.id}" data-v="${kind}" aria-haspopup="dialog" aria-label="${label} for ${esc(w.name)}: ${GOAL_OPTS[kind].find((o) => o[0] === cur)[1]}"><span class="muted small">${label}</span><b>${GOAL_OPTS[kind].find((o) => o[0] === cur)[1]}</b>${svg('chevDown', 18, 'var(--muted)', 2.5)}</button>`;
+      return `<div class="bsav">
+        <div class="brow"><span class="dot" style="background:var(--savings);width:10px;height:10px"></span><span class="grow bname"><b>${esc(w.name)}</b><span class="muted small">${yearly ? (m === 'end' ? `Balance by end of ${yr}` : `Put in during ${yr}`) : 'Each month'}</span></span>
+          ${yearly ? input('goal:' + w.id, '—', '$') + '<span class="brep hide"></span>' : input('wallet:' + w.id, '—', '$') + rep('wallet:' + w.id)}</div>
+        <div class="bpicks">${pick('mode', 'Goal', m)}${yearly ? pick('split', 'Each month', sp) : ''}${yearly && sp !== 'manual' ? pick('after', 'Once reached', af) : ''}</div>
+        ${yearly ? `
+          ${sp === 'manual' || af === 'keep' ? `<div class="brow"><span class="grow bname"><span style="font-weight:700">${sp === 'manual' ? 'Monthly amount' : 'Monthly amount once reached'}</span></span>${input('wallet:' + w.id, '—', '$')}${rep('wallet:' + w.id)}</div>` : ''}
+          <span class="muted small" data-ghint="${w.id}">${goalHint(d, k, w, mk)}</span>` : ''}
+      </div>`;
+    };
+    ui.bcol = ui.bcol || {};
+    // collapsible section: header shows the section's total so it's useful even when closed
+    const bsec = (key, title, total, body) => { const open = !ui.bcol[key]; return `<button class="bsechead" data-act="bsecToggle" data-v="${key}" aria-expanded="${open}"><h2>${title}</h2><span class="muted" id="bst-${key}">${money(total)}</span>${svg(open ? 'chevUp' : 'chevDown', 18, 'var(--muted)', 2.5)}</button>${open ? body : ''}`; };
     return `<section class="screen sub">${header('Budgets')}
       <div class="tabs hscroll monthscroll" role="tablist" aria-label="Budget month" style="margin:0 -16px;padding:0 16px">${keys.map((k) => (k.endsWith('-01') && k !== keys[0] ? `<span class="yearmark" aria-hidden="true">${k.slice(0, 4)}</span>` : '') + `<button role="tab" aria-selected="${k === mk}" aria-label="${mname(k)} ${k.slice(0, 4)}" class="${k === mk ? 'on' : ''}" data-act="budgetMonth" data-v="${k}" style="flex:none;padding:0 18px">${mname(k)}</button>`).join('')}</div>
       <div class="between"><span class="muted small" style="display:flex;align-items:center;gap:6px">${svg('repeat', 16, 'var(--pink)')} = same every month until you change it</span>${mk > first ? `<button class="chip" style="height:36px" data-act="budgetCopy">Copy ${mname(prevK)}</button>` : ''}</div>
-      <div class="card" style="gap:10px">
-        <div class="brow"><span class="grow bname"><b style="font-size:17px">Overall spend</b><span class="muted small">Monthly limit for everything you spend</span></span>${input('overall', '—', '$')}${rep('overall')}</div>
-        <div class="between"><span class="muted small">Left to give categories</span><b class="${ua.cls}" id="bunalloc">${ua.main}</b></div>
-      </div>
-      <div class="between"><h2 style="margin:0">Categories</h2>
+      <div class="card" style="gap:6px" id="bsum">${budgetSumHtml(k)}</div>
+      ${bsec('inc', 'Income', k.inc, `<div class="card" style="gap:4px">${incCatsTop().map((p) => `<div class="brow"><span class="dot" style="background:${p.color};width:10px;height:10px"></span><span class="grow bname"><b>${esc(p.name)}</b></span>${input(p.id, '—', '$')}${rep(p.id)}</div>`).join('')}</div>`)}
+      ${bsec('sav', 'Savings', k.sav, `<div class="card" style="gap:14px">${savW().map(savRow).join('<hr class="bhr">') || '<span class="muted small">No savings accounts yet.</span>'}</div>`)}
+      ${bsec('debt', 'Debt', k.debt, `<p class="muted small" style="margin:0">Extra you plan to pay toward card carryover and loans this month.</p>
+      <div class="card" style="gap:4px">${debtW().map((w) => { const owed = E.balances(S, TODAY)[w.name] || 0; return `<div class="brow"><span class="dot" style="background:${TYPE_COLOR[w.type]};width:10px;height:10px"></span><span class="grow bname"><b>${esc(w.name)}</b><span class="muted small">${owed > 0.004 ? `Owes ${money(owed)}` : 'Paid off'}</span></span>${input('debt:' + w.id, '—', '$')}${rep('debt:' + w.id)}</div>`; }).join('') || '<span class="muted small">No credit cards or loans.</span>'}</div>`)}
+      ${bsec('cat', 'Categories', k.sumAmt, `<div class="between"><p class="muted small" style="margin:0;flex:1">${pctMode ? 'Percent of allocated spend. Subcategories are a percent of their parent.' : 'Dollar amounts. Each shows its share of allocated spend (subcategories: share of their parent).'} Leave blank for no budget.</p>
         <div class="seg" role="group" aria-label="Budget categories by"><button class="${pctMode ? '' : 'on'}" data-act="budgetBasis" data-v="amt" aria-pressed="${!pctMode}">$</button><button class="${pctMode ? 'on' : ''}" data-act="budgetBasis" data-v="pct" aria-pressed="${pctMode}">%</button></div></div>
-      <p class="muted small" style="margin:0">${pctMode ? 'Percent of overall spend. Subcategories are a percent of their parent.' : 'Dollar amounts. Each shows its share of overall spend (subcategories: share of their parent).'} Leave blank for no budget.</p>
-      ${S.categories.filter((c) => c.type === 'expense' && !c.parent).map(parentRow).join('')}
-      <h2>Income</h2><div class="card" style="gap:4px">${S.categories.filter((c) => c.type === 'income' && !c.parent).map((p) => `<div class="brow"><span class="dot" style="background:${p.color};width:10px;height:10px"></span><span class="grow bname"><b>${esc(p.name)}</b></span>${input(p.id, '—', '$')}${rep(p.id)}</div>`).join('')}</div>
-      <h2>Savings</h2><div class="card" style="gap:4px">${S.wallets.filter((w) => w.type === 'savings').map((w) => `<div class="brow"><span class="dot" style="background:var(--savings);width:10px;height:10px"></span><span class="grow bname"><b>${esc(w.name)}</b></span>${input('wallet:' + w.id, '—', '$')}${rep('wallet:' + w.id)}</div>`).join('')}</div>
+      ${S.categories.filter((c) => c.type === 'expense' && !c.parent).map(parentRow).join('')}`)}
       <p class="warn" id="bwarn" style="margin:0"></p>
       <button class="btn primary" data-act="budgetSave">Save budgets</button>
     </section>`;
   }
+  function budgetSumHtml(k) {
+    const ua = unallocText(k);
+    const ln = (l, v, cls) => `<div class="between" style="font-size:14px"><span class="muted">${l}</span><span class="${cls || ''}">${v}</span></div>`;
+    return `${ln('Income', money(k.inc), 'green')}${ln('Savings', (k.sav > 0.004 ? '−' : '') + money(k.sav))}${ln('Debt', (k.debt > 0.004 ? '−' : '') + money(k.debt))}
+      <div class="between" style="border-top:1px solid var(--line);padding-top:8px;margin-top:2px"><b style="font-size:17px">Allocated Spend</b><b style="font-size:20px" class="${k.overall < 0 ? 'red' : ''}">${k.overall < 0 ? '−' : ''}${money(Math.abs(k.overall))}</b></div>
+      ${ln('Discretionary Allocation', money(k.sumAmt))}
+      <div class="between"><span class="muted small">Left to allocate</span><b class="${ua.cls}" id="bunalloc">${ua.main}</b></div>`;
+  }
+  function goalHint(d, k, w, mk) {
+    const m = d.gmode[w.id], amt = bnum(d.vals['goal:' + w.id]);
+    if (!amt) return 'Enter the goal for the year.';
+    const ys = yearShare(w, mk, { mode: m, amount: amt, split: d.gsplit[w.id] || 'opt', after: (d.gafter || {})[w.id] || 'stop' }, bnum(d.vals['wallet:' + w.id]));
+    const have = m === 'end' ? `Balance ${money(ys.have)}` : `${money(ys.have)} put in so far`;
+    if (ys.left <= 0.004) return `${have} · goal reached · ${money(k.share[w.id])} this month`;
+    const opt = r2(ys.left / ys.monthsLeft);
+    return `${have} · ${money(ys.left)} to go · ${money(k.share[w.id])} this month${ys.split !== 'opt' ? ` (optimized would be ${money(opt)})` : ` over ${ys.monthsLeft} month${ys.monthsLeft === 1 ? '' : 's'} left`}`;
+  }
   // live update of hints and the unallocated line while typing (no re-render, so focus stays put)
   function budgetRefresh(scr) {
-    const d = scr.d, k = budgetCalc(d);
+    const d = scr.d, k = budgetCalc(d, scr.month);
     S.categories.filter((c) => c.type === 'expense').forEach((c) => {
       const el = document.querySelector(`[data-hint="${c.id}"]`);
       if (el) el.textContent = budgetHint(d, k, c.id, c.parent ? (cat(c.parent) || {}).name : '');
@@ -975,8 +1056,9 @@
       if (lf) { const l = k.left(c.id); lf.textContent = k.amt[c.id] ? `${money(l.amt)} · ${fmtPct(l.pct)} of ${c.name} not in a subcategory` : ''; }
     });
     document.querySelectorAll('.brep').forEach((b) => b.classList.toggle('hide', !bnum(d.vals[b.dataset.id])));
-    const u = document.getElementById('bunalloc');
-    if (u) { const t = unallocText(k); u.textContent = t.main; u.className = t.cls; }
+    const bs = document.getElementById('bsum'); if (bs) bs.innerHTML = budgetSumHtml(k);
+    [['inc', k.inc], ['sav', k.sav], ['debt', k.debt], ['cat', k.sumAmt]].forEach(([key, v]) => { const e = document.getElementById('bst-' + key); if (e) e.textContent = money(v); });
+    savW().forEach((w) => { const g = document.querySelector(`[data-ghint="${w.id}"]`); if (g) g.textContent = goalHint(d, k, w, scr.month); });
   }
 
   function renderCategories(scr) {
@@ -1503,14 +1585,24 @@
         ${['bank', 'savings', 'credit', 'loan'].map((t) => { const items = S.wallets.filter((w) => w.type === t); return items.length ? `<div class="acctgroup" style="border-color:${TYPE_COLOR[t]}">${items.map((w) => `<button class="acctrow" data-act="walletPick" data-f="${sh.field}" data-v="${esc(w.name)}"><span class="ring" style="border-color:${TYPE_COLOR[t]};background:${f[sh.field] === w.name ? TYPE_COLOR[t] : 'transparent'}"></span><b>${esc(w.name)}</b></button>`).join('')}</div>` : ''; }).join('')}
       </div></div>`;
     },
+    goalPick: (sh) => {
+      const top = ui.stack[ui.stack.length - 1], d = top && top.d; if (!d) return '';
+      const w = S.wallets.find((x) => x.id === sh.id) || {};
+      const cur = sh.kind === 'mode' ? (d.gmode[sh.id] || 'month') : sh.kind === 'split' ? (d.gsplit[sh.id] || 'opt') : ((d.gafter || {})[sh.id] || 'stop');
+      const title = { mode: 'Goal', split: 'Each month', after: 'Once reached' }[sh.kind];
+      return `<div class="scrim" data-act="closeSheet"><div class="sheet" role="dialog" aria-label="${title}" data-stop="1">
+        <div class="between"><h3>${title} · ${esc(w.name || '')}</h3><button class="iconbtn" style="background:transparent" data-act="closeSheet" aria-label="Close">${svg('close')}</button></div>
+        <div class="acctgroup" style="border-color:var(--savings)">${GOAL_OPTS[sh.kind].map(([v, l, desc]) => `<button class="acctrow" style="padding:8px 16px" role="radio" aria-checked="${cur === v}" data-act="goalPickSet" data-id="${sh.id}" data-k="${sh.kind}" data-v="${v}"><span class="ring" style="border-color:var(--savings);background:${cur === v ? 'var(--savings)' : 'transparent'}"></span><span style="display:flex;flex-direction:column"><b>${l}</b><span class="muted small">${desc}</span></span></button>`).join('')}</div>
+      </div></div>`;
+    },
     delRec: (sh) => {
       const r = S.rules.find((x) => x.id === sh.ruleId);
       const name = r ? (r.template.title || (cat(r.template.category) || {}).name || 'Recurring') : 'Recurring';
       return `<div class="scrim" data-act="closeSheet"><div class="sheet" role="dialog" aria-label="Delete recurring payment" data-stop="1">
         <div class="between"><h3>Delete ${esc(name)} · ${E.fmtShort(sh.date)}?</h3><button class="iconbtn" style="background:transparent" data-act="closeSheet" aria-label="Close">${svg('close')}</button></div>
-        <p class="muted small" style="margin:0">This is a recurring payment. Earlier payments are never affected.</p>
-        <button class="btn" data-act="delThis">Delete this payment only</button>
-        <button class="btn danger" data-act="delFollowing">Delete this and all following</button>
+        <p class="muted small" style="margin:0">This is a recurring payment. <b>Delete all</b> removes this payment and every one after it. Earlier payments stay.</p>
+        <button class="btn" data-act="delThis">Delete entry</button>
+        <button class="btn danger" data-act="delFollowing">Delete all</button>
       </div></div>`;
     },
     occ: (sh) => {
@@ -1770,12 +1862,15 @@
       }
       case 'budgetCopy': {
         const c = loadBudgetVals(E.shiftKey(top.month, -1), top.d.basis);
-        top.d.vals = c.vals; top.d.rep = c.rep; top.d.dirty = true; render(); toast('Copied — tap Save to keep'); break;
+        top.d.vals = c.vals; top.d.rep = c.rep; top.d.gmode = c.gmode; top.d.gsplit = c.gsplit; top.d.gafter = c.gafter; top.d.dirty = true; render(); toast('Copied — tap Save to keep'); break;
       }
+      case 'bsecToggle': ui.bcol = ui.bcol || {}; ui.bcol[v] = !ui.bcol[v]; render(); break;
       case 'budgetToggle': top.d.open[id] = !top.d.open[id]; render(); break;
+      case 'goalPickOpen': ui.sheet = { name: 'goalPick', id, kind: v }; render(); break;
+      case 'goalPickSet': { top.d.gafter = top.d.gafter || {}; ({ mode: top.d.gmode, split: top.d.gsplit, after: top.d.gafter })[el.dataset.k][id] = v; top.d.dirty = true; ui.sheet = null; render(); break; }
       case 'budgetBasis': {
         const d = top.d; if (d.basis === v) break;
-        const k = budgetCalc(d);
+        const k = budgetCalc(d, top.month);
         S.categories.filter((c) => c.type === 'expense').forEach((c) => {
           if (!bnum(d.vals[c.id])) return;
           d.vals[c.id] = v === 'pct' ? String(Math.round(k.pct[c.id] * 10) / 10) : (k.amt[c.id] ? String(k.amt[c.id]) : '');
@@ -1783,12 +1878,14 @@
         d.basis = v; render(); break;
       }
       case 'budgetSave': {
-        const d = top.d, k = budgetCalc(d);
+        const d = top.d, k = budgetCalc(d, top.month);
         const problems = [];
         const parents = S.categories.filter((c) => c.type === 'expense' && !c.parent);
         const anyCat = S.categories.some((c) => c.type === 'expense' && bnum(d.vals[c.id]));
-        if (d.basis === 'pct' && anyCat && !k.overall) problems.push('Set an overall spend budget to budget by %.');
-        if (k.overall && k.unAmt < -0.004) problems.push(`Categories add up to ${money(k.overall - k.unAmt)}, more than overall spend of ${money(k.overall)}.`);
+        if (d.basis === 'pct' && anyCat && !(k.overall > 0)) problems.push('Add your income (and leave some after savings and debt) to budget by %.');
+        if (k.inc && k.overall < -0.004) problems.push(`Savings and debt add up to ${money(k.sav + k.debt)}, more than income of ${money(k.inc)}.`);
+        else if (k.inc && k.unAmt < -0.004) problems.push(`Categories add up to ${money(k.sumAmt)}, more than your allocated spend of ${money(k.overall)}.`);
+        savW().forEach((w) => { const m = d.gmode[w.id] || 'month'; if (m !== 'month' && !bnum(d.vals['goal:' + w.id])) problems.push(`${w.name}: enter a goal for the year, or switch it back to Monthly.`); });
         parents.forEach((p) => {
           const subs = S.categories.filter((s) => s.parent === p.id && bnum(d.vals[s.id]));
           if (!subs.length) return;
@@ -1797,12 +1894,19 @@
         });
         if (problems.length) { document.getElementById('bwarn').innerHTML = problems.map(esc).join('<br>'); break; }
         const mk = top.month, out = {};
-        if (k.overall) out.overall = { amount: r2(k.overall) };
+        if (!k.inc && bnum(d.vals.overall)) out.overall = { amount: r2(bnum(d.vals.overall)) }; // older typed-in overall stays until income is set
         S.categories.forEach((c) => {
           if (c.type === 'expense') { if (k.amt[c.id]) out[c.id] = { amount: k.amt[c.id], pct: d.basis === 'pct' ? bnum(d.vals[c.id]) : null }; }
           else if (bnum(d.vals[c.id])) out[c.id] = { amount: r2(bnum(d.vals[c.id])) };
         });
-        S.wallets.filter((w) => w.type === 'savings').forEach((w) => { const n = bnum(d.vals['wallet:' + w.id]); if (n) out['wallet:' + w.id] = { amount: r2(n) }; });
+        savW().forEach((w) => { const m = d.gmode[w.id] || 'month', sp = d.gsplit[w.id] || 'opt'; const n = bnum(d.vals['wallet:' + w.id]); const af = (d.gafter || {})[w.id] || 'stop'; if (n && (m === 'month' || sp === 'manual' || af === 'keep')) out['wallet:' + w.id] = { amount: r2(n) }; });
+        debtW().forEach((w) => { const n = bnum(d.vals['debt:' + w.id]); if (n) out['debt:' + w.id] = { amount: r2(n) }; });
+        // yearly savings goals are saved for the whole budget year
+        const yr = top.month.slice(0, 4);
+        S.settings.savingsGoals = S.settings.savingsGoals || {};
+        const yg = {};
+        savW().forEach((w) => { const m = d.gmode[w.id] || 'month'; const n = bnum(d.vals['goal:' + w.id]); if (m !== 'month' && n) yg[w.id] = { mode: m, amount: r2(n), split: d.gsplit[w.id] || 'opt', after: (d.gafter || {})[w.id] || 'stop' }; });
+        if (Object.keys(yg).length) S.settings.savingsGoals[yr] = yg; else delete S.settings.savingsGoals[yr];
         const others = S.budgets.filter((x) => x.month !== mk);
         const mine = [];
         budgetIds().forEach((bid) => {
