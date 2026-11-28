@@ -261,3 +261,23 @@ input[placeholder="—"]:placeholder-shown{text-align:center}
 .keypad button:active{background:rgba(255,255,255,.08)}
 .keypad button.op{color:var(--pink);font-size:28px}
 .btn[disabled]{opacity:.45}
+.subscat{background:transparent;border:0;color:var(--text);font:inherit;padding:0;gap:12px;width:100%;min-height:44px}
+.iconbtn.fon{background:var(--pink);color:#2A1018;position:relative}
+.iconbtn.fon svg{stroke:#2A1018}
+.fbadge{position:absolute;top:-4px;right:-4px;min-width:18px;height:18px;border-radius:9px;background:var(--text);color:var(--bg);font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 4px}
+.savrow{display:flex;flex-direction:column;gap:6px;padding:12px 0;border-top:1px solid var(--line)}
+.card > .savrow:first-child{border-top:0}
+.savbtn{background:transparent;border:0;border-top:1px solid var(--line);color:var(--text);font:inherit;text-align:left;width:100%}
+.card > .savbtn:first-child{border-top:0}
+.savname{background:transparent;border:0;color:var(--text);font:inherit;text-align:left;padding:0;min-height:44px;justify-content:center}
+.savmo{display:flex;flex-direction:column;align-items:flex-end;gap:0;flex:none}
+.savmo b{font-size:17px}
+.savbar{display:block;height:6px;border-radius:3px;background:var(--card2);overflow:hidden}
+.savbar > span{display:block;height:6px;border-radius:3px;background:var(--savings)}
+.savprev{background:var(--bg);border-radius:16px;padding:14px 16px;display:flex;flex-direction:column;gap:8px}
+.faq{border-top:1px solid var(--line)}
+.faq:first-child{border-top:0}
+.faq summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:52px;font-weight:700;cursor:pointer}
+.faq summary::-webkit-details-marker{display:none}
+.faq[open] summary svg{transform:rotate(180deg)}
+.faq p{margin:0 0 14px;color:var(--soft,var(--muted));line-height:1.5;font-size:14px}

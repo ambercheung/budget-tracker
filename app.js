@@ -90,6 +90,7 @@
     sun: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM12 2v2M12 20v2M4 12H2M22 12h-2M5 5l1.5 1.5M17.5 17.5L19 19M5 19l1.5-1.5M17.5 6.5L19 5',
     cloud: 'M7 18a4 4 0 0 1-.5-8A6 6 0 0 1 18 9a4.5 4.5 0 0 1-1 9z',
     search: 'M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM20 20l-4-4',
+    funnel: 'M3 5h18l-7 8.5V19l-4 2v-7.5z',
     sortIc: 'M4 7h10M4 12h7M4 17h4M17 6v12M14 15l3 3 3-3',
     grip: 'M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01',
     copy: 'M9 9h11v11H9zM5 15V4h11',
@@ -169,7 +170,8 @@
     trash: 'M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3',
     transfer: 'M4 8h14l-3-3M20 16H6l3 3',
     adjust: 'M4 7h10M18 7h2M4 17h4M12 17h8M16 5v4M10 15v4',
-    chevDown: 'M6 9l6 6 6-6', chevUp: 'M6 15l6-6 6 6', back: 'M19 12H5M11 5l-7 7 7 7', close: 'M6 6l12 12M18 6L6 18',
+    help: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM9.5 9.2a2.6 2.6 0 0 1 5 .8c0 1.7-2.5 2.3-2.5 4M12 17.2v.1',
+    chevDown: 'M6 9l6 6 6-6', chevUp: 'M6 15l6-6 6 6', chevRight: 'M9 6l6 6-6 6', back: 'M19 12H5M11 5l-7 7 7 7', close: 'M6 6l12 12M18 6L6 18',
     cal: 'M4 6h16v14H4zM4 10h16M8 3v4M16 3v4', repeat: 'M4 12a8 8 0 0 1 14-5l2 2M20 12a8 8 0 0 1-14 5l-2-2M20 4v5h-5M4 20v-5h5',
     navHome: 'M3 11l9-7 9 7M5 10v10h14V10M10 20v-6h4v6', navSum: 'M12 3v9h9M21 12A9 9 0 1 1 12 3', navTx: 'M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01', navMore: 'M5 12h.01M12 12h.01M19 12h.01',
     palette: 'M12 3a9 9 0 1 0 0 18c1.5 0 2-1 2-2s-1-2 0-3 3 0 4-1 3-2 3-5a9 9 0 0 0-9-7zM7.5 11h.01M10 7.5h.01M14.5 7.5h.01',
@@ -226,7 +228,7 @@
   let lastScreenKey = '', lastSheetKey = '';
   // Remember where you are (tab, open screens, half-typed entry) so a pull-to-refresh lands you back in the same place.
   function saveNav() {
-    try { sessionStorage.setItem('bt-nav', JSON.stringify({ tab: ui.tab, month: ui.month, stack: ui.stack, form: ui.form, sumPeriod: ui.sumPeriod, sumWallet: ui.sumWallet, homeYear: ui.homeYear, paysOpen: ui.paysOpen, futureOpen: ui.futureOpen })); } catch (e) { /* storage unavailable */ }
+    try { sessionStorage.setItem('bt-nav', JSON.stringify({ tab: ui.tab, month: ui.month, stack: ui.stack, form: ui.form, sumPeriod: ui.sumPeriod, sumWallet: ui.sumWallet, homeYear: ui.homeYear, txFilter: ui.txFilter, paysOpen: ui.paysOpen, futureOpen: ui.futureOpen })); } catch (e) { /* storage unavailable */ }
   }
   function restoreNav() {
     try {
@@ -234,7 +236,7 @@
       if (!n) return false;
       if (TABS[n.tab]) ui.tab = n.tab;
       if (n.month) ui.month = clampMonth(n.month);
-      ['sumPeriod', 'sumWallet', 'paysOpen', 'futureOpen', 'homeYear'].forEach((k) => { if (n[k] !== undefined) ui[k] = n[k]; });
+      ['sumPeriod', 'sumWallet', 'paysOpen', 'futureOpen', 'homeYear', 'txFilter'].forEach((k) => { if (n[k] !== undefined) ui[k] = n[k]; });
       const stack = [];
       for (const sc of n.stack || []) {
         if (!sc || !SCREENS[sc.name]) break;
@@ -250,6 +252,7 @@
   }
   function render() {
     if (E.resetCache) E.resetCache();
+    recurCache = {};
     { const tc = S.settings.typeColors || {}, st = document.documentElement.style; ['bank', 'savings', 'credit', 'loan'].forEach((t) => { if (tc[t]) st.setProperty('--' + t, tc[t]); else st.removeProperty('--' + t); }); }
     const top = ui.stack[ui.stack.length - 1];
     let html = '';
@@ -362,12 +365,18 @@
     const pays = bm.pays.map((p) => ({ ...p, t: E.totals(S, p.start, p.end, TODAY) }));
     // skipped upcoming payments stay visible (faded) so they can be brought back
     const skipped = S.skips.filter((k) => k.date > TODAY && k.date >= bm.start && k.date <= bm.end).map((k) => { const r = S.rules.find((x) => x.id === k.ruleId); return r && r.active !== false ? { ...r.template, id: `skip:${r.id}|${k.date}`, date: k.date, ruleId: r.id, skipped: true } : null; }).filter(Boolean);
-    const future = list.filter((t) => t.date > TODAY).concat(skipped), past = list.filter((t) => t.date <= TODAY);
+    const tf = ui.txFilter || {}, fc = tf.cats || [], fa = tf.accts || [], filtering = fc.length + fa.length > 0;
+    const keep = (t) => (!fc.length || fc.some((id) => id === 'transfer' ? t.type === 'transfer' : (t.category === id || (cat(t.category) || {}).parent === id))) && (!fa.length || fa.includes(t.wallet) || (t.toWallet && fa.includes(t.toWallet)));
+    const shown = filtering ? list.filter(keep) : list;
+    const future = shown.filter((t) => t.date > TODAY).concat(filtering ? skipped.filter(keep) : skipped), past = shown.filter((t) => t.date <= TODAY);
+    const ft = filtering ? shown.filter((t) => E.countsNow(t, TODAY)).reduce((z, t) => { const a = Number(t.amount) || 0; if (t.type === 'income') z.i += a; else if (t.type === 'expense') z.o += a; return z; }, { i: 0, o: 0 }) : null;
     const first = E.monthKeyFor(S.schedule, S.settings.startDate, H);
     const keys = []; for (let k = first; k <= E.shiftKey(ui.month > first ? ui.month : first, 12); k = E.shiftKey(k, 1)) keys.push(k);
     return `<section class="screen">
-      <div class="between"><h1>Transactions</h1><button class="iconbtn" data-act="search" aria-label="Search transactions">${svg('search', 22)}</button></div>
+      <div class="between"><h1>Transactions</h1><span class="row" style="gap:8px"><button class="iconbtn ${filtering ? 'fon' : ''}" data-act="txFilter" aria-label="Filter by category or account${filtering ? ' (on)' : ''}">${svg('funnel', 22)}${filtering ? `<span class="fbadge">${fc.length + fa.length}</span>` : ''}</button><button class="iconbtn" data-act="search" aria-label="Search transactions">${svg('search', 22)}</button></span></div>
       <div class="tabs hscroll monthscroll" role="tablist" aria-label="Month" style="margin:0 -16px;padding:0 16px">${keys.map((k) => (k.endsWith('-01') && k !== keys[0] ? `<span class="yearmark" aria-hidden="true">${k.slice(0, 4)}</span>` : '') + `<button role="tab" aria-selected="${k === ui.month}" aria-label="${E.MONTHS[Number(k.slice(5)) - 1]} ${k.slice(0, 4)}" class="${k === ui.month ? 'on' : ''}" data-act="month" data-v="${k}" style="flex:none;padding:0 18px">${E.MONTHS[Number(k.slice(5)) - 1]}</button>`).join('')}</div>
+      ${filtering ? `<div class="hscroll row" style="gap:8px;margin:0 -16px;padding:0 16px">${fc.map((id) => `<button class="chip on" data-act="txFilterDrop" data-k="cats" data-v="${id}" aria-label="Remove filter ${id === 'transfer' ? 'Transfers' : esc((cat(id) || {}).name || '')}">${id === 'transfer' ? 'Transfers' : esc((cat(id) || {}).name || '?')} ✕</button>`).join('')}${fa.map((n) => `<button class="chip on" data-act="txFilterDrop" data-k="accts" data-v="${esc(n)}" aria-label="Remove filter ${esc(n)}">${esc(n)} ✕</button>`).join('')}<button class="chip" data-act="txFilterClear">Clear all</button></div>
+      <div class="bar3" style="height:40px;align-items:center;font-size:15px;background:var(--card);border-radius:14px" aria-label="Filtered: income, expenses, net"><span class="green">▴ ${money(ft.i)}</span><span class="red">▾ ${money(ft.o)}</span><span>= ${ft.i - ft.o < 0 ? '−' : ''}${money(Math.abs(ft.i - ft.o))}</span></div>` : ''}
       <section style="background:var(--card);border-radius:14px;overflow:hidden">
         <button class="collapse" style="background:transparent;height:40px;color:var(--muted);font-size:13px;font-weight:700" data-act="togglePays" aria-expanded="${ui.paysOpen}" aria-label="Show Pay 1 and Pay 2">${E.fmtShort(bm.start)} – ${E.fmtShort(bm.end)}${svg(ui.paysOpen ? 'chevUp' : 'chevDown', 18, 'currentColor', 2.5)}</button>
         <div class="bar3" style="height:44px;align-items:center;font-size:16px" aria-label="Month: income, expenses, remaining"><span class="green">▴ ${money(mt.income)}</span><span class="red">▾ ${money(mt.out)}</span><span>= ${mt.remaining < 0 ? '−' : ''}${money(mt.remaining)}</span></div>
@@ -378,7 +387,7 @@
           </div>`).join('')}</div>` : ''}
       </section>
       ${future.length ? `<button class="collapse" data-act="toggleFuture" aria-expanded="${ui.futureOpen}">Future Transactions${svg(ui.futureOpen ? 'chevUp' : 'chevDown', 18, 'currentColor', 2.5)}</button>${ui.futureOpen ? dayGroups(future, pays) : ''}` : ''}
-      ${past.length ? dayGroups(past, pays) : (!future.length ? `<div class="empty">No transactions in ${monthLabel(ui.month)} yet.<br>Tap + to add one.</div>` : '')}
+      ${past.length ? dayGroups(past, pays) : (!future.length ? `<div class="empty">${filtering ? `No matching transactions in ${monthLabel(ui.month)}.` : `No transactions in ${monthLabel(ui.month)} yet.<br>Tap + to add one.`}</div>` : '')}
     </section>`;
   }
 
@@ -395,6 +404,28 @@
   const pctOf = (a, b) => (b > 0 ? Math.round(a / b * 100) : 0);
   const bar = (pct, color, h = 8) => `<div class="pbar" style="height:${h}px"><div style="width:${Math.max(0, Math.min(100, pct))}%;background:${color}"></div></div>`;
   const budgetAmt = (id, mk) => { const b = E.budgetFor(S.budgets, id, mk); return b ? b.amount : 0; };
+  // what recurring transactions put in a budget month: expense by category (parent and sub), income by category, savings by account
+  let recurCache = {};
+  function recurIn(mk) {
+    if (recurCache[mk]) return recurCache[mk];
+    const bm = E.budgetMonth(S.schedule, mk, hs());
+    const list = E.transactionsInRange(S, bm.start, bm.end).filter((t) => t.ruleId && !t.deleted);
+    const out = { cat: {}, inc: {}, sav: {}, list, total: 0 };
+    const add = (o, k, a) => { if (k) o[k] = r2((o[k] || 0) + a); };
+    list.forEach((t) => {
+      const a = Number(t.amount) || 0, c = cat(t.category);
+      const pid = c && c.parent ? c.parent : t.category, sid = t.sub || (c && c.parent ? t.category : null);
+      if (t.type === 'expense') { add(out.cat, pid, a); add(out.cat, sid, a); out.total = r2(out.total + a); }
+      else if (t.type === 'income') add(out.inc, pid, a);
+      else if (t.type === 'transfer') { const sv = E.classify(S, t).savings; if (sv > 0) add(out.sav, t.toWallet, sv); }
+    });
+    return (recurCache[mk] = out);
+  }
+  const recCat = (id, mk) => recurIn(mk).cat[id] || 0;
+  // a category's budget = its recurring bills for the month (locked) + the extra you set
+  const catBudget = (id, mk) => r2(budgetAmt(id, mk) + recCat(id, mk));
+  // income budgets are only what you type (recurring pay is shown beside it for comparison)
+  const incBudget = (id, mk) => budgetAmt(id, mk);
   const savW = () => S.wallets.filter((w) => w.type === 'savings');
   // registered account kinds; older accounts without a kind are guessed from their name
   const KINDS = [['regular', 'Regular'], ['tfsa', 'TFSA'], ['rrsp', 'RRSP'], ['fhsa', 'FHSA']];
@@ -432,7 +463,7 @@
   const savingsBudget = (w, mk) => { const g = yearGoal(w, mk.slice(0, 4)); return g ? yearShare(w, mk, g, budgetAmt('wallet:' + w.id, mk)).share : budgetAmt('wallet:' + w.id, mk); };
   // spending money for a month = income budget − savings − debt payments (falls back to an older typed-in overall)
   function overallFor(mk) {
-    const inc = incCatsTop().reduce((t, c) => t + budgetAmt(c.id, mk), 0);
+    const inc = incCatsTop().reduce((t, c) => t + incBudget(c.id, mk), 0);
     if (!inc) return budgetAmt('overall', mk);
     return r2(inc - savW().reduce((t, w) => t + savingsBudget(w, mk), 0) - debtW().reduce((t, w) => t + budgetAmt('debt:' + w.id, mk), 0));
   }
@@ -555,10 +586,10 @@
       return `${bar(pc, over ? 'var(--red)' : 'var(--pink)', big ? 10 : 8)}<div class="between muted" style="font-size:12px"><span>${money(spent)} of ${money(budget)} · ${pc}%</span>${over ? `<span class="red">${money(spent - budget)} over</span>` : `<span>${money(budget - spent)} left</span>`}</div>`;
     };
     const parents = S.categories.filter((c) => c.type === 'expense' && !c.parent);
-    const budgeted = parents.filter((p) => budgetAmt(p.id, mk) > 0);
-    const unb = parents.filter((p) => !budgetAmt(p.id, mk)).map((p) => ({ p, a: spentIn(p.id) })).filter((x) => x.a > 0.004).sort((a, b) => b.a - a.a);
+    const budgeted = parents.filter((p) => catBudget(p.id, mk) > 0);
+    const unb = parents.filter((p) => !catBudget(p.id, mk)).map((p) => ({ p, a: spentIn(p.id) })).filter((x) => x.a > 0.004).sort((a, b) => b.a - a.a);
     const uncategorized = exp.filter((t) => !cat(t.category)).reduce((x, t) => x + Number(t.amount), 0);
-    const incomeRows = S.categories.filter((c) => c.type === 'income' && !c.parent && budgetAmt(c.id, mk) > 0).map((c) => ({ c, b: budgetAmt(c.id, mk), a: list.filter((t) => t.type === 'income' && (t.category === c.id || (cat(t.category) || {}).parent === c.id)).reduce((x, t) => x + Number(t.amount), 0) }));
+    const incomeRows = S.categories.filter((c) => c.type === 'income' && !c.parent && incBudget(c.id, mk) > 0).map((c) => ({ c, b: incBudget(c.id, mk), a: list.filter((t) => t.type === 'income' && (t.category === c.id || (cat(t.category) || {}).parent === c.id)).reduce((x, t) => x + Number(t.amount), 0) }));
     const sv = savingsByWallet(list);
     const goals = savW().map((w) => ({ w, b: savingsBudget(w, mk), a: sv[w.name] || 0 })).filter((g) => g.b > 0);
     const paidTo = (w) => list.filter((t) => t.type === 'transfer' && t.toWallet === w.name).reduce((x, t) => x + Number(t.amount), 0);
@@ -572,12 +603,12 @@
       <section class="card" style="gap:14px" aria-label="Category budgets">
         <h2 class="ctitle">Categories</h2>
         ${budgeted.length ? budgeted.map((p) => {
-          const b = budgetAmt(p.id, mk), a = spentIn(p.id);
-          const subs = S.categories.filter((x) => x.parent === p.id && budgetAmt(x.id, mk) > 0);
+          const b = catBudget(p.id, mk), a = spentIn(p.id), rc = recCat(p.id, mk);
+          const subs = S.categories.filter((x) => x.parent === p.id && catBudget(x.id, mk) > 0);
           return `<div style="display:flex;flex-direction:column;gap:6px">
-            <div class="row" style="gap:12px"><span style="width:40px;height:40px;border-radius:20px;background:${p.color};display:flex;align-items:center;justify-content:center;flex:none">${svg(p.icon, 20, '#fff')}</span><b class="grow" style="font-size:16px">${esc(p.name)}</b></div>
+            <div class="row" style="gap:12px"><span style="width:40px;height:40px;border-radius:20px;background:${p.color};display:flex;align-items:center;justify-content:center;flex:none">${svg(p.icon, 20, '#fff')}</span><b class="grow" style="font-size:16px">${esc(p.name)}</b>${rc ? `<span class="muted small">${money(rc)} recurring</span>` : ''}</div>
             ${prog(a, b)}
-            ${subs.length ? `<div class="subtree" style="gap:10px">${subs.map((x) => `<div style="display:flex;flex-direction:column;gap:4px"><span class="ctag" style="background:${p.color}B3;align-self:flex-start">${esc(x.name)}</span>${prog(subSpent(x.id), budgetAmt(x.id, mk))}</div>`).join('')}</div>` : ''}
+            ${subs.length ? `<div class="subtree" style="gap:10px">${subs.map((x) => `<div style="display:flex;flex-direction:column;gap:4px"><span class="ctag" style="background:${p.color}B3;align-self:flex-start">${esc(x.name)}</span>${prog(subSpent(x.id), catBudget(x.id, mk))}</div>`).join('')}</div>` : ''}
           </div>`;
         }).join('') : `<p class="muted small" style="margin:0">No category budgets for ${monthName(mk)}.</p>`}
         ${unb.length || uncategorized > 0.004 ? `<div style="display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--line);padding-top:12px"><span class="ml2">Unbudgeted · ${money(unb.reduce((x, u) => x + u.a, 0) + uncategorized)}</span>${unb.map((u) => `<div class="row" style="gap:8px;font-size:14px"><span class="dot" style="background:${u.p.color};width:10px;height:10px"></span><b class="grow">${esc(u.p.name)}</b><span class="red" style="font-weight:800">${money(u.a)}</span></div>`).join('')}${uncategorized > 0.004 ? `<div class="row" style="gap:8px;font-size:14px"><span class="dot" style="background:#5E5A62;width:10px;height:10px"></span><b class="grow">Uncategorized</b><span class="red" style="font-weight:800">${money(uncategorized)}</span></div>` : ''}</div>` : ''}
@@ -661,9 +692,50 @@
     </section>`;
   }
 
+
+  // ---------- Help / FAQ ----------
+  const HELP = [
+    ['Getting around', [
+      ['What are the four tabs?', '<b>Home</b>: your year at a glance (net worth, income, savings, contribution room). <b>Summary</b>: one budget month in detail, as Spend or Budget. <b>Transactions</b>: everything you have entered, by month. <b>More</b>: budgets, accounts, categories, subscriptions, calendar, close month, sync and settings.'],
+      ['What is a budget month?', 'Months follow your paydays, not the calendar. Your January runs from your last-day-of-December pay to the day before your last-day-of-January pay. Paydays on a weekend or holiday move to the business day before. Change your pay schedule in Theme &amp; Style.'],
+      ['How do I pick a year on Home?', 'Use the year dropdown at the top right. It covers the January to December budget months of that year, counted up to today.']
+    ]],
+    ['Adding and editing', [
+      ['How do I add a transaction?', 'Tap <b>+</b>. Pick Expense, Income or Transfer, then the category, the subcategory (if it has any), the account, and the amount. Tap <b>Review Transaction</b>, check the details, and tap <b>Save</b>. The keypad can do maths, e.g. 45.5×2+1.'],
+      ['How do I make something recurring?', 'On the review page, tap <b>Recurring</b> and choose how often. Recurring transactions show under Future Transactions and in More → Subscriptions.'],
+      ['How do I edit, skip or delete?', 'Tap a transaction to edit it. Swipe it to see ⋯ and the garbage can. For recurring ones: <b>Skip</b> skips one or more payments (undo by tapping a faded skipped payment), <b>Delete entry</b> removes just that one, <b>Delete all</b> removes it and every one after it.'],
+      ['How do I filter transactions?', 'In Transactions, tap the funnel next to search. Pick any categories and accounts; tap a chip under the months to remove it.']
+    ]],
+    ['Budgets', [
+      ['How does the Budgets screen work?', 'Type your <b>Income</b>, <b>Savings</b> and <b>Debt</b> for the month. Income − Savings − Debt is your <b>Allocated Spend</b>. Your recurring bills are taken off first, then you give the rest to categories (<b>Discretionary Allocation</b>). <b>Left to allocate</b> is what is still unassigned. Tap <b>Save budgets</b> when done.'],
+      ['What does the ↻ button do?', 'It repeats that amount every month until you change it, so you only type it once.'],
+      ['How are recurring bills included?', 'Each category automatically gets its recurring bills for that month as a locked amount. The box is the extra you add on top. Income and Savings only count what you type; scheduled recurring amounts are shown beside them for comparison.'],
+      ['How do savings goals work?', 'In Savings, tap an account. <b>Monthly</b>: an amount each month. <b>Yearly total</b>: how much to put in this year. <b>By Dec</b>: the balance you want at year end. For yearly goals, choose <b>Optimized</b> (what is left ÷ months left), <b>Even split</b> or <b>Manual</b>.']
+    ]],
+    ['Accounts, transfers and debt', [
+      ['How do I pay a credit card or loan?', 'Add a <b>Transfer</b> from Chequing to the card or loan. Purchases you entered were already counted as spend, so paying them off is not counted again. Paying a balance from before you started using the app counts as spend.'],
+      ['How do savings transfers count?', 'Moving money into savings comes off Money remaining and counts toward that month\'s savings. Moving it back out of savings adds it back.'],
+      ['How do I fix a balance?', 'Open the account and use the balance correction. If the date is before the account\'s start date, it sets the starting balance instead.'],
+      ['How does contribution room work?', 'Set an account type (TFSA, RRSP or FHSA) and its contribution room in More → Accounts. Accounts of the same type share one room. On Home, tap <b>Choose accounts</b> to pick which accounts count.']
+    ]],
+    ['Your data', [
+      ['Is my data saved?', 'Yes. Everything saves on your phone as soon as you tap Save, and backs up to your Google Sheet when Data Sync is set up.'],
+      ['How do I update the app?', 'Upload the new files to your GitHub repo, then fully close and reopen the app.'],
+      ['What does Close Month do?', 'It reviews the month (card payments, balances) and locks it so older months do not change by accident.']
+    ]]
+  ];
+  function renderHelp(scr) {
+    const q = (scr.q || '').toLowerCase().trim();
+    const strip = (h) => h.replace(/<[^>]+>/g, '');
+    const groups = HELP.map(([t, items]) => [t, items.filter(([qq, a]) => !q || (qq + ' ' + strip(a)).toLowerCase().includes(q))]).filter(([, items]) => items.length);
+    return `<section class="screen sub">${header('Help & FAQ')}
+      <label class="field"><span class="sr">Search help</span>${svg('search', 20, 'var(--muted)')}<input placeholder="Search help" value="${esc(scr.q || '')}" data-xbind="q" data-rerender="1"></label>
+      ${groups.length ? groups.map(([t, items]) => `<h2 style="margin:6px 0 0">${t}</h2><div class="card" style="gap:0;padding:0 16px">${items.map(([qq, a]) => `<details class="faq"><summary>${qq}${svg('chevDown', 18, 'var(--muted)', 2.5)}</summary><p>${a}</p></details>`).join('')}</div>`).join('') : '<div class="empty">No matching questions.</div>'}
+    </section>`;
+  }
   function renderMore() {
     const tiles = [['calendar', 'Calendar', 'cal'], ['budgets', 'Budgets', 'budget'], ['accounts', 'Accounts', 'wallet'], ['subs', 'Subscriptions', 'repeat'], ['categories', 'Categories', 'grid'], ['close', 'Close Month', 'check'], ['sync', 'Data Sync', 'sync'], ['export', 'Export', 'download']];
-    return `<section class="screen"><h1>More</h1>
+    return `<section class="screen"><div class="between"><h1>More</h1><button class="iconbtn" data-act="open" data-v="help" aria-label="Help and FAQ">${svg('help', 24)}</button></div>
       <button class="tile" style="flex-direction:row;align-items:center;min-height:72px" data-act="open" data-v="settings">${svg('palette', 26, 'var(--pink)')}<span style="display:flex;flex-direction:column;gap:2px"><span class="t" style="font-size:17px">Theme &amp; Style</span><span class="muted" style="font-size:13px">Theme, colours, layout, pay schedule and holidays</span></span></button>
       <div class="more-grid">${tiles.map(([k, l, i]) => `<button class="tile" data-act="open" data-v="${k}">${svg(i, 26, 'var(--pink)')}<span class="t">${l}</span></button>`).join('')}</div>
     </section>`;
@@ -908,6 +980,27 @@
   }
   let scrSubs = null;
   const ruleName = (r) => r.template.title || (cat(r.template.sub) || cat(r.template.category) || {}).name || 'Transfer';
+  // recurring expenses scheduled in one budget month, grouped by category
+  function subsByCat(scr) {
+    const first = E.monthKeyFor(S.schedule, S.settings.startDate, hs());
+    const mk = scr.month && scr.month >= first ? scr.month : (curMonthKey() < first ? first : curMonthKey());
+    const keys = []; for (let k = first; k <= E.shiftKey(mk > first ? mk : first, 12); k = E.shiftKey(k, 1)) keys.push(k);
+    const R = recurIn(mk), open = scr.catOpen || {};
+    const exp = R.list.filter((t) => t.type === 'expense');
+    const parents = S.categories.filter((c) => c.type === 'expense' && !c.parent && R.cat[c.id]).sort((a, b) => R.cat[b.id] - R.cat[a.id]);
+    const other = exp.filter((t) => !cat(t.category));
+    const mname = (k) => E.MONTHS[Number(k.slice(5)) - 1];
+    const row = (t) => `<div class="between" style="font-size:13px;padding-left:52px"><span class="muted">${E.fmtShort(t.date)} · ${esc(t.title || (cat(t.sub) || cat(t.category) || {}).name || '')}</span><span>${money(t.amount)}</span></div>`;
+    return `<section class="card" style="gap:12px" aria-label="Recurring by category">
+      <div class="between"><h2 class="ctitle" style="margin:0">By category</h2><b class="red">${money(R.total)}</b></div>
+      <div class="tabs hscroll monthscroll" role="tablist" aria-label="Budget month" style="margin:0 -16px;padding:0 16px">${keys.map((k) => (k.endsWith('-01') && k !== keys[0] ? `<span class="yearmark" aria-hidden="true">${k.slice(0, 4)}</span>` : '') + `<button role="tab" aria-selected="${k === mk}" class="${k === mk ? 'on' : ''}" data-act="subsMonth" data-v="${k}" style="flex:none;padding:0 16px">${mname(k)}</button>`).join('')}</div>
+      <span class="muted small">Scheduled in the ${mname(mk)} ${mk.slice(0, 4)} budget month. Skipped payments aren't counted.</span>
+      ${parents.length ? parents.map((p) => { const subs = S.categories.filter((x) => x.parent === p.id && R.cat[x.id]); const items = exp.filter((t) => t.category === p.id || (cat(t.category) || {}).parent === p.id); const o = !!open[p.id];
+        return `<div style="display:flex;flex-direction:column;gap:6px"><button class="row subscat" data-act="subsCat" data-id="${p.id}" aria-expanded="${o}"><span class="ic" style="width:40px;height:40px;border-radius:20px;background:${p.color};display:flex;align-items:center;justify-content:center;flex:none">${svg(p.icon, 20, '#fff')}</span><b class="grow" style="text-align:left">${esc(p.name)}</b><b>${money(R.cat[p.id])}</b>${svg(o ? 'chevUp' : 'chevDown', 16, 'var(--muted)', 2.5)}</button>
+          ${o ? `${subs.map((x) => `<div class="between" style="font-size:14px;padding-left:52px"><span class="ctag" style="background:${p.color}B3">${esc(x.name)}</span><b>${money(R.cat[x.id])}</b></div>`).join('')}${items.map(row).join('')}` : ''}</div>`; }).join('') : `<p class="muted small" style="margin:0">No recurring expenses in ${mname(mk)}.</p>`}
+      ${other.length ? `<div class="between" style="font-size:14px"><span class="muted">No category</span><b>${money(other.reduce((x, t) => x + Number(t.amount), 0))}</b></div>` : ''}
+    </section>`;
+  }
   function renderSubs() {
     scrSubs = ui.stack[ui.stack.length - 1]; const filt = scrSubs.filter || 'all';
     const smode = (S.settings.sort || {}).rules || 'date';
@@ -921,6 +1014,7 @@
     return `<section class="screen sub">${header('Subscriptions', { right: `<button class="iconbtn" data-act="open" data-v="reorder" data-k="rules" aria-label="Order subscriptions">${svg('sortIc', 20)}</button><button class="iconbtn" data-act="addRecurring" aria-label="Add recurring transaction">${svg('plus', 22)}</button>` })}
       <div class="seg full" role="group" aria-label="Filter">${[['all', 'All'], ['upcoming', 'Upcoming'], ['paused', 'Paused']].map(([k, l]) => `<button class="${filt === k ? 'on' : ''}" data-act="subsFilter" data-v="${k}" aria-pressed="${filt === k}">${l}</button>`).join('')}</div>
       <div class="card" style="align-items:center"><span class="red" style="font-size:30px;font-weight:800">▾ ${money(monthly)}</span><span class="muted">Averaged monthly recurring expenses</span></div>
+      ${subsByCat(scrSubs)}
       ${rows.length ? rows.map(({ r, next }) => {
         const c = cat(r.template.category), d = next ? E.diffDays(TODAY, next) : null;
         return `<button class="tx" data-act="ruleMenu" data-id="${r.id}" style="${r.active === false ? 'opacity:.55' : ''}">
@@ -977,6 +1071,7 @@
   }
   // amounts and percentages for every spend entry. Parents are a share of overall; subs a share of their parent.
   function budgetCalc(d, mk) {
+    const R = recurIn(mk);
     const inc = incCatsTop().reduce((t, c) => t + bnum(d.vals[c.id]), 0);
     const share = {};
     savW().forEach((w) => {
@@ -1000,11 +1095,14 @@
     });
     const subsOf = (pid) => S.categories.filter((s) => s.parent === pid);
     const sumAmt = parents.reduce((t, p) => t + amt[p.id], 0);
-    const sumPct = d.basis === 'pct' ? parents.reduce((t, p) => t + pct[p.id], 0) : (overall ? sumAmt / overall * 100 : 0);
+    const rec = r2(parents.reduce((t, p) => t + (R.cat[p.id] || 0), 0));
+    const sumPct = overall ? (rec + sumAmt) / overall * 100 : 0;
     const left = (pid) => { const a = subsOf(pid).reduce((t, s) => t + amt[s.id], 0); return { amt: amt[pid] - a, pct: amt[pid] ? 100 - a / amt[pid] * 100 : 0 }; };
-    return { inc, sav, debt, share, overall, amt, pct, sumAmt, unAmt: overall - sumAmt, unPct: 100 - sumPct, left };
+    return { inc, sav, debt, share, overall, amt, pct, sumAmt, rec, R, unAmt: r2(overall - rec - sumAmt), unPct: 100 - sumPct, left };
   }
   function budgetHint(d, k, id, parentName) {
+    const rc = k.R.cat[id] || 0;
+    if (rc) { const ex = k.amt[id] || 0; return `${money(rc)} recurring${ex ? ` + ${money(ex)} = ${money(rc + ex)}` : ''}`; }
     if (!bnum(d.vals[id])) return '';
     if (d.basis === 'pct') return k.amt[id] ? money(k.amt[id]) : (parentName ? `Set ${parentName} first` : 'Add income first');
     return k.pct[id] ? `${fmtPct(k.pct[id])} of ${parentName || 'spend'}` : '';
@@ -1012,6 +1110,7 @@
   function unallocText(k) {
     if (!k.inc) return { main: 'Add your income above', cls: 'muted' };
     if (k.overall <= 0) return { main: 'Savings and debt use all your income', cls: 'red' };
+    if (k.unAmt < -0.004 && k.rec > k.overall) return { main: `−${money(k.rec - k.overall)} · recurring bills are more than allocated spend`, cls: 'red' };
     const over = k.unAmt < -0.004;
     return { main: `${over ? '−' : ''}${money(Math.abs(k.unAmt))} · ${fmtPct(Math.abs(k.unPct))} ${over ? 'over' : 'unallocated'}`, cls: over ? 'red' : 'green' };
   }
@@ -1020,6 +1119,16 @@
     split: [['opt', 'Optimized', 'What’s left ÷ months left. Adjusts if you get ahead or fall behind'], ['even', 'Even split', 'The year’s goal spread equally over 12 months'], ['manual', 'Manual', 'Type your own monthly amount']],
     after: [['stop', 'Stop saving', 'Nothing set aside once the goal is reached'], ['keep', 'Keep saving', 'Switch to a set monthly amount once the goal is reached']]
   };
+  // a yearly savings goal's summary for the Budgets row and its pop-up
+  function savGoalInfo(d, k, w, mk) {
+    const m = d.gmode[w.id] || 'month', amount = bnum(d.vals['goal:' + w.id]), sp = d.gsplit[w.id] || 'opt';
+    const ys = yearShare(w, mk, { mode: m, amount, split: sp, after: (d.gafter || {})[w.id] || 'stop' }, bnum(d.vals['wallet:' + w.id]));
+    const spl = { opt: 'Optimized', even: 'Even split', manual: 'Manual' }[sp];
+    const label = !amount ? (m === 'end' ? 'Balance by Dec' : 'Yearly total') : (m === 'end' ? `${money(amount)} by Dec · ${spl}` : `${money(amount)} this year · ${spl}`);
+    const pc = amount ? Math.max(0, Math.min(100, Math.round(ys.have / amount * 100))) : 0;
+    const prog = `${money(ys.have)} of ${money(amount)} · ${pc}%${ys.reached ? ' · goal reached' : ''}`;
+    return { amount, ys, label, pc, prog };
+  }
   function renderBudgets(scr) {
     const d = budgetDraft(scr), k = budgetCalc(d, scr.month);
     const pctMode = d.basis === 'pct';
@@ -1047,16 +1156,19 @@
     };
     const yr = mk.slice(0, 4);
     const savRow = (w) => {
-      const m = d.gmode[w.id] || 'month', sp = d.gsplit[w.id] || 'opt', af = (d.gafter || {})[w.id] || 'stop', yearly = m !== 'month';
-      const pick = (kind, label, cur) => `<button class="bpick" data-act="goalPickOpen" data-id="${w.id}" data-v="${kind}" aria-haspopup="dialog" aria-label="${label} for ${esc(w.name)}: ${GOAL_OPTS[kind].find((o) => o[0] === cur)[1]}"><span class="muted small">${label}</span><b>${GOAL_OPTS[kind].find((o) => o[0] === cur)[1]}</b>${svg('chevDown', 18, 'var(--muted)', 2.5)}</button>`;
-      return `<div class="bsav">
-        <div class="brow"><span class="dot" style="background:var(--savings);width:10px;height:10px"></span><span class="grow bname"><b>${esc(w.name)}</b><span class="muted small">${yearly ? (m === 'end' ? `Balance by end of ${yr}` : `Put in during ${yr}`) : 'Each month'}</span></span>
-          ${yearly ? input('goal:' + w.id, '—', '$') + '<span class="brep hide"></span>' : input('wallet:' + w.id, '—', '$') + rep('wallet:' + w.id)}</div>
-        <div class="bpicks">${pick('mode', 'Goal', m)}${yearly ? pick('split', 'Each month', sp) : ''}${yearly && sp !== 'manual' ? pick('after', 'Once reached', af) : ''}</div>
-        ${yearly ? `
-          ${sp === 'manual' || af === 'keep' ? `<div class="brow"><span class="grow bname"><span style="font-weight:700">${sp === 'manual' ? 'Monthly amount' : 'Monthly amount once reached'}</span></span>${input('wallet:' + w.id, '—', '$')}${rep('wallet:' + w.id)}</div>` : ''}
-          <span class="muted small" data-ghint="${w.id}">${goalHint(d, k, w, mk)}</span>` : ''}
-      </div>`;
+      const m = d.gmode[w.id] || 'month', yearly = m !== 'month';
+      if (!yearly) {
+        const rs = k.R.sav[w.name] || 0;
+        return `<div class="savrow"><div class="brow"><span class="dot" style="background:var(--savings);width:10px;height:10px"></span>
+          <button class="grow bname savname" data-act="savEdit" data-id="${w.id}" aria-label="Change goal for ${esc(w.name)}"><b>${esc(w.name)}</b><span class="muted small" style="display:flex;align-items:center;gap:2px">Monthly${rs ? ` · scheduled ${money(rs)}` : ''}${svg('chevRight', 14, 'var(--muted)', 2.5)}</span></button>
+          ${input('wallet:' + w.id, '—', '$')}${rep('wallet:' + w.id)}</div></div>`;
+      }
+      const g = savGoalInfo(d, k, w, mk);
+      return `<button class="savrow savbtn" data-act="savEdit" data-id="${w.id}" aria-label="Edit goal for ${esc(w.name)}">
+        <span class="brow"><span class="dot" style="background:var(--savings);width:10px;height:10px"></span><span class="grow bname"><b>${esc(w.name)}</b><span class="muted small">${g.label}</span></span>
+          <span class="savmo"><b data-gshare="${w.id}">${money(k.share[w.id] || 0)}</b><span class="muted small">this month</span></span>${svg('chevRight', 18, 'var(--muted)', 2.5)}</span>
+        ${g.amount ? `<span class="savbar" aria-hidden="true"><span data-gbar="${w.id}" style="width:${g.pc}%"></span></span><span class="muted small" data-gprog="${w.id}">${g.prog}</span>` : '<span class="muted small">Tap to enter the goal</span>'}
+      </button>`;
     };
     ui.bcol = ui.bcol || {};
     // collapsible section: header shows the section's total so it's useful even when closed
@@ -1065,11 +1177,11 @@
       <div class="tabs hscroll monthscroll" role="tablist" aria-label="Budget month" style="margin:0 -16px;padding:0 16px">${keys.map((k) => (k.endsWith('-01') && k !== keys[0] ? `<span class="yearmark" aria-hidden="true">${k.slice(0, 4)}</span>` : '') + `<button role="tab" aria-selected="${k === mk}" aria-label="${mname(k)} ${k.slice(0, 4)}" class="${k === mk ? 'on' : ''}" data-act="budgetMonth" data-v="${k}" style="flex:none;padding:0 18px">${mname(k)}</button>`).join('')}</div>
       <div class="between"><span class="muted small" style="display:flex;align-items:center;gap:6px">${svg('repeat', 16, 'var(--pink)')} = same every month until you change it</span>${mk > first ? `<button class="chip" style="height:36px" data-act="budgetCopy">Copy ${mname(prevK)}</button>` : ''}</div>
       <div class="card" style="gap:6px" id="bsum">${budgetSumHtml(k)}</div>
-      ${bsec('inc', 'Income', k.inc, `<div class="card" style="gap:4px">${incCatsTop().map((p) => `<div class="brow"><span class="dot" style="background:${p.color};width:10px;height:10px"></span><span class="grow bname"><b>${esc(p.name)}</b></span>${input(p.id, '—', '$')}${rep(p.id)}</div>`).join('')}</div>`)}
-      ${bsec('sav', 'Savings', k.sav, `<div class="card" style="gap:14px">${savW().map(savRow).join('<hr class="bhr">') || '<span class="muted small">No savings accounts yet.</span>'}</div>`)}
+      ${bsec('inc', 'Income', k.inc, `<div class="card" style="gap:4px">${incCatsTop().map((p) => { const ri = k.R.inc[p.id] || 0; return `<div class="brow"><span class="dot" style="background:${p.color};width:10px;height:10px"></span><span class="grow bname"><b>${esc(p.name)}</b>${ri ? `<span class="muted small">Scheduled: ${money(ri)}</span>` : ''}</span>${input(p.id, '—', '$')}${rep(p.id)}</div>`; }).join('')}</div>`)}
+      ${bsec('sav', 'Savings', k.sav, `<div class="card" style="gap:0;padding-top:4px;padding-bottom:4px">${savW().map(savRow).join('') || '<span class="muted small">No savings accounts yet.</span>'}</div>`)}
       ${bsec('debt', 'Debt', k.debt, `<p class="muted small" style="margin:0">Extra you plan to pay toward card carryover and loans this month.</p>
       <div class="card" style="gap:4px">${debtW().map((w) => { const owed = E.balances(S, TODAY)[w.name] || 0; return `<div class="brow"><span class="dot" style="background:${TYPE_COLOR[w.type]};width:10px;height:10px"></span><span class="grow bname"><b>${esc(w.name)}</b><span class="muted small">${owed > 0.004 ? `Owes ${money(owed)}` : 'Paid off'}</span></span>${input('debt:' + w.id, '—', '$')}${rep('debt:' + w.id)}</div>`; }).join('') || '<span class="muted small">No credit cards or loans.</span>'}</div>`)}
-      ${bsec('cat', 'Categories', k.sumAmt, `<div class="between"><p class="muted small" style="margin:0;flex:1">${pctMode ? 'Percent of allocated spend. Subcategories are a percent of their parent.' : 'Dollar amounts. Each shows its share of allocated spend (subcategories: share of their parent).'} Leave blank for no budget.</p>
+      ${bsec('cat', 'Categories', k.rec + k.sumAmt, `<div class="between"><p class="muted small" style="margin:0;flex:1">${pctMode ? 'Percent of allocated spend. Subcategories are a percent of their parent.' : 'Dollar amounts. Each shows its share of allocated spend (subcategories: share of their parent).'} Leave blank for no budget.</p>
         <div class="seg" role="group" aria-label="Budget categories by"><button class="${pctMode ? '' : 'on'}" data-act="budgetBasis" data-v="amt" aria-pressed="${!pctMode}">$</button><button class="${pctMode ? 'on' : ''}" data-act="budgetBasis" data-v="pct" aria-pressed="${pctMode}">%</button></div></div>
       ${S.categories.filter((c) => c.type === 'expense' && !c.parent).map(parentRow).join('')}`)}
       <p class="warn" id="bwarn" style="margin:0"></p>
@@ -1081,6 +1193,7 @@
     const ln = (l, v, cls) => `<div class="between" style="font-size:14px"><span class="muted">${l}</span><span class="${cls || ''}">${v}</span></div>`;
     return `${ln('Income', money(k.inc), 'green')}${ln('Savings', (k.sav > 0.004 ? '−' : '') + money(k.sav))}${ln('Debt', (k.debt > 0.004 ? '−' : '') + money(k.debt))}
       <div class="between" style="border-top:1px solid var(--line);padding-top:8px;margin-top:2px"><b style="font-size:17px">Allocated Spend</b><b style="font-size:20px" class="${k.overall < 0 ? 'red' : ''}">${k.overall < 0 ? '−' : ''}${money(Math.abs(k.overall))}</b></div>
+      ${ln('Recurring bills', money(k.rec))}
       ${ln('Discretionary Allocation', money(k.sumAmt))}
       <div class="between"><span class="muted small">Left to allocate</span><b class="${ua.cls}" id="bunalloc">${ua.main}</b></div>`;
   }
@@ -1104,8 +1217,10 @@
     });
     document.querySelectorAll('.brep').forEach((b) => b.classList.toggle('hide', !bnum(d.vals[b.dataset.id])));
     const bs = document.getElementById('bsum'); if (bs) bs.innerHTML = budgetSumHtml(k);
-    [['inc', k.inc], ['sav', k.sav], ['debt', k.debt], ['cat', k.sumAmt]].forEach(([key, v]) => { const e = document.getElementById('bst-' + key); if (e) e.textContent = money(v); });
-    savW().forEach((w) => { const g = document.querySelector(`[data-ghint="${w.id}"]`); if (g) g.textContent = goalHint(d, k, w, scr.month); });
+    [['inc', k.inc], ['sav', k.sav], ['debt', k.debt], ['cat', k.rec + k.sumAmt]].forEach(([key, v]) => { const e = document.getElementById('bst-' + key); if (e) e.textContent = money(v); });
+    savW().forEach((w) => { const g = document.querySelector(`[data-ghint="${w.id}"]`); if (g) g.textContent = goalHint(d, k, w, scr.month);
+      document.querySelectorAll(`[data-gshare="${w.id}"]`).forEach((e) => { e.textContent = money(k.share[w.id] || 0); });
+      const gi = (d.gmode[w.id] || 'month') !== 'month' ? savGoalInfo(d, k, w, scr.month) : null; if (gi) { document.querySelectorAll(`[data-gprog="${w.id}"]`).forEach((e) => { e.textContent = gi.prog; }); const bar = document.querySelector(`[data-gbar="${w.id}"]`); if (bar) bar.style.width = gi.pc + '%'; } });
   }
 
   function renderCategories(scr) {
@@ -1536,7 +1651,7 @@
   const SCREENS = {
     add: renderAdd,
     accounts: renderAccounts, wallet: renderWalletForm, subs: renderSubs, budgets: renderBudgets, categories: renderCategories, cat: renderCatForm, settings: renderSettings,
-    calendar: renderCalendar, reorder: renderReorder, close: renderClose, sync: renderSync, export: renderExport, acct: renderAcct, search: renderSearch,
+    calendar: renderCalendar, help: renderHelp, reorder: renderReorder, close: renderClose, sync: renderSync, export: renderExport, acct: renderAcct, search: renderSearch,
     placeholder: placeholder('Coming soon', '')
   };
 
@@ -1621,6 +1736,22 @@
         <h3>${esc(sh.message)}</h3>
         <div class="row"><button class="btn grow" data-act="closeSheet">No</button><button class="btn danger grow" data-act="confirmYes">${esc(sh.yesLabel)}</button></div>
       </div></div>`,
+    txFilter: () => {
+      const tf = ui.txFilter || {}, fc = tf.cats || [], fa = tf.accts || [];
+      const chip = (k, v, label, on, color) => `<button class="chip ${on ? 'on' : ''}" aria-pressed="${on}" data-act="txFilterTog" data-k="${k}" data-v="${esc(v)}">${color ? `<span class="dot" style="background:${color};width:10px;height:10px"></span>` : ''}${esc(label)}</button>`;
+      const grp = (title, items) => items.length ? `<span class="muted small" style="font-weight:700">${title}</span><div class="row" style="gap:8px;flex-wrap:wrap">${items.join('')}</div>` : '';
+      return `<div class="scrim" data-act="closeSheet"><div class="sheet" role="dialog" aria-label="Filter transactions" data-stop="1">
+        <div class="between"><h3>Filter</h3><button class="iconbtn" style="background:transparent" data-act="closeSheet" aria-label="Close">${svg('close')}</button></div>
+        <h2 style="margin:0">Category</h2>
+        ${grp('Expense', S.categories.filter((c) => c.type === 'expense' && !c.parent).map((c) => chip('cats', c.id, c.name, fc.includes(c.id), c.color)))}
+        ${grp('Income', S.categories.filter((c) => c.type === 'income' && !c.parent).map((c) => chip('cats', c.id, c.name, fc.includes(c.id), c.color)))}
+        ${grp('Other', [chip('cats', 'transfer', 'Transfers', fc.includes('transfer'))])}
+        <h2 style="margin:6px 0 0">Account</h2>
+        ${['bank', 'savings', 'credit', 'loan'].map((t) => grp(GROUP_NAME[t], S.wallets.filter((w) => w.type === t).map((w) => chip('accts', w.name, w.name, fa.includes(w.name), TYPE_COLOR[t])))).join('')}
+        <p class="muted small" style="margin:0">Pick several to see any of them. Category and account filters combine.</p>
+        <div class="row" style="gap:10px"><button class="btn" style="flex:1" data-act="txFilterClear">Clear</button><button class="btn primary" style="flex:1" data-act="closeSheet">Done</button></div>
+      </div></div>`;
+    },
     wiz: (sh) => {
       const f = ui.form; if (!f) return '';
       const back = sh.hist && sh.hist.length ? `<button class="iconbtn" style="background:transparent" data-act="wizBack" aria-label="Back">${svg('back', 22)}</button>` : '';
@@ -1661,6 +1792,28 @@
       return `<div class="scrim" data-act="closeSheet"><div class="sheet" role="dialog" aria-label="Select account" data-stop="1">
         <div class="between"><h3>Select Account</h3><button class="iconbtn" style="background:transparent" data-act="closeSheet" aria-label="Close">${svg('close')}</button></div>
         ${['bank', 'savings', 'credit', 'loan'].map((t) => { const items = S.wallets.filter((w) => w.type === t); return items.length ? `<div class="acctgroup" style="border-color:${TYPE_COLOR[t]}">${items.map((w) => `<button class="acctrow" data-act="walletPick" data-f="${sh.field}" data-v="${esc(w.name)}"><span class="ring" style="border-color:${TYPE_COLOR[t]};background:${f[sh.field] === w.name ? TYPE_COLOR[t] : 'transparent'}"></span><b>${esc(w.name)}</b></button>`).join('')}</div>` : ''; }).join('')}
+      </div></div>`;
+    },
+    savEdit: (sh) => {
+      const top = ui.stack[ui.stack.length - 1], d = top && top.d; if (!d) return '';
+      const w = S.wallets.find((x) => x.id === sh.id); if (!w) return '';
+      const mk = top.month, k = budgetCalc(d, mk), m = d.gmode[w.id] || 'month', sp = d.gsplit[w.id] || 'opt', af = (d.gafter || {})[w.id] || 'stop', yr = mk.slice(0, 4);
+      const seg = (act, cur, opts) => `<div class="seg wizseg" role="group">${opts.map(([v, l]) => `<button class="${cur === v ? 'on' : ''}" aria-pressed="${cur === v}" data-act="${act}" data-id="${w.id}" data-v="${v}">${l}</button>`).join('')}</div>`;
+      const fld = (id, label) => `<label class="field"><span class="lbl">${label}</span><span class="muted">$</span><input inputmode="decimal" placeholder="—" value="${esc(d.vals[id] || '')}" data-bv="${id}"></label>`;
+      const g = m !== 'month' ? savGoalInfo(d, k, w, mk) : null;
+      const rs = k.R.sav[w.name] || 0;
+      return `<div class="scrim" data-act="closeSheet"><div class="sheet" role="dialog" aria-label="Savings goal for ${esc(w.name)}" data-stop="1">
+        <div class="between"><h3>${esc(w.name)}</h3><button class="iconbtn" style="background:transparent" data-act="closeSheet" aria-label="Close">${svg('close')}</button></div>
+        <span class="muted small" style="font-weight:700">Goal type</span>${seg('savMode', m, [['month', 'Monthly'], ['in', 'Yearly total'], ['end', 'By Dec']])}
+        ${m === 'month' ? `${fld('wallet:' + w.id, 'Each month')}${rs ? `<p class="muted small" style="margin:-4px 0 0">Scheduled recurring transfers this month: ${money(rs)}.</p>` : ''}` : `
+          ${fld('goal:' + w.id, m === 'end' ? `Balance by end of ${yr}` : `Put in during ${yr}`)}
+          <span class="muted small" style="font-weight:700">Set aside each month</span>${seg('savSplit', sp, [['opt', 'Optimized'], ['even', 'Even split'], ['manual', 'Manual']])}
+          <p class="muted small" style="margin:-4px 0 0">${GOAL_OPTS.split.find((o) => o[0] === sp)[2]}.</p>
+          ${sp === 'manual' ? fld('wallet:' + w.id, 'Monthly amount') : `<div class="between" style="min-height:48px;gap:12px"><span style="display:flex;flex-direction:column"><b>Keep saving after the goal</b><span class="muted small">${af === 'keep' ? 'Switches to a set monthly amount once reached' : 'Off: the monthly amount drops to $0 once reached'}</span></span><button class="switch ${af === 'keep' ? 'on' : ''}" role="switch" aria-checked="${af === 'keep'}" data-act="savAfter" data-id="${w.id}" aria-label="Keep saving after the goal"></button></div>
+          ${af === 'keep' ? fld('wallet:' + w.id, 'Monthly amount once reached') : ''}`}
+          <div class="savprev"><div class="between" style="align-items:baseline"><span class="muted small" style="font-weight:700">${E.MONTHS[Number(mk.slice(5)) - 1]}</span><b class="green" style="font-size:26px" data-gshare="${w.id}">${money(k.share[w.id] || 0)}</b></div>
+            <span class="savbar" aria-hidden="true"><span data-gbar="${w.id}" style="width:${g.pc}%"></span></span><span class="muted small" data-ghint="${w.id}">${goalHint(d, k, w, mk)}</span></div>`}
+        <button class="btn primary" data-act="closeSheet">Done</button>
       </div></div>`;
     },
     goalPick: (sh) => {
@@ -1836,6 +1989,12 @@
         await delRecAction(a === 'delThis'); break;
       }
       case 'toggleUp': ui.upOpen = !ui.upOpen; render(); break;
+      case 'txFilter': ui.sheet = { name: 'txFilter' }; render(); break;
+      case 'txFilterTog': { const k = el.dataset.k; ui.txFilter = ui.txFilter || {}; const a = ui.txFilter[k] = ui.txFilter[k] || []; const i = a.indexOf(v); if (i >= 0) a.splice(i, 1); else a.push(v); render(); break; }
+      case 'txFilterDrop': { const k = el.dataset.k; ui.txFilter = ui.txFilter || {}; ui.txFilter[k] = (ui.txFilter[k] || []).filter((x) => x !== v); render(); break; }
+      case 'txFilterClear': ui.txFilter = {}; if (ui.sheet && ui.sheet.name === 'txFilter') ui.sheet = null; render(); break;
+      case 'subsMonth': top.month = v; render(); break;
+      case 'subsCat': top.catOpen = top.catOpen || {}; top.catOpen[id] = !top.catOpen[id]; render(); break;
       case 'nwPick': ui.sheet = { name: 'nwPick' }; render(); break;
       case 'roomPick': ui.sheet = { name: 'roomPick' }; render(); break;
       case 'roomToggle': { const w = S.wallets.find((x) => x.id === id); w.inRoom = !inRoom(w); await save('wallets'); render(); break; }
@@ -1969,6 +2128,10 @@
       }
       case 'bsecToggle': ui.bcol = ui.bcol || {}; ui.bcol[v] = !ui.bcol[v]; render(); break;
       case 'budgetToggle': top.d.open[id] = !top.d.open[id]; render(); break;
+      case 'savEdit': ui.sheet = { name: 'savEdit', id }; render(); break;
+      case 'savMode': top.d.gmode[id] = v; top.d.dirty = true; render(); break;
+      case 'savSplit': top.d.gsplit[id] = v; top.d.dirty = true; render(); break;
+      case 'savAfter': top.d.gafter = top.d.gafter || {}; top.d.gafter[id] = top.d.gafter[id] === 'keep' ? 'stop' : 'keep'; top.d.dirty = true; render(); break;
       case 'goalPickOpen': ui.sheet = { name: 'goalPick', id, kind: v }; render(); break;
       case 'goalPickSet': { top.d.gafter = top.d.gafter || {}; ({ mode: top.d.gmode, split: top.d.gsplit, after: top.d.gafter })[el.dataset.k][id] = v; top.d.dirty = true; ui.sheet = null; render(); break; }
       case 'budgetBasis': {
@@ -1987,7 +2150,7 @@
         const anyCat = S.categories.some((c) => c.type === 'expense' && bnum(d.vals[c.id]));
         if (d.basis === 'pct' && anyCat && !(k.overall > 0)) problems.push('Add your income (and leave some after savings and debt) to budget by %.');
         if (k.inc && k.overall < -0.004) problems.push(`Savings and debt add up to ${money(k.sav + k.debt)}, more than income of ${money(k.inc)}.`);
-        else if (k.inc && k.unAmt < -0.004) problems.push(`Categories add up to ${money(k.sumAmt)}, more than your allocated spend of ${money(k.overall)}.`);
+        else if (k.inc && k.unAmt < -0.004) problems.push(`Recurring bills (${money(k.rec)}) and categories (${money(k.sumAmt)}) add up to more than your allocated spend of ${money(k.overall)}.`);
         savW().forEach((w) => { const m = d.gmode[w.id] || 'month'; if (m !== 'month' && !bnum(d.vals['goal:' + w.id])) problems.push(`${w.name}: enter a goal for the year, or switch it back to Monthly.`); });
         parents.forEach((p) => {
           const subs = S.categories.filter((s) => s.parent === p.id && bnum(d.vals[s.id]));
